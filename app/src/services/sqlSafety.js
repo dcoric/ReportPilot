@@ -1,15 +1,4 @@
-const BLOCKED_SQL_KEYWORDS = [
-  "insert",
-  "update",
-  "delete",
-  "merge",
-  "alter",
-  "drop",
-  "truncate",
-  "create",
-  "grant",
-  "revoke"
-];
+const { validateAstReadOnly } = require("./sqlAstValidator");
 
 function sanitizeGeneratedSql(raw) {
   let text = String(raw || "").trim();
@@ -52,75 +41,6 @@ function ensureLimit(sql, maxRows) {
   return `${stripTrailingSemicolon(sql)} LIMIT ${Number(maxRows)};`;
 }
 
-function normalizeIdentifier(identifier) {
-  return String(identifier || "")
-    .replace(/^"+|"+$/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function extractReferencedObjects(sql) {
-  const refs = [];
-  const regex = /\b(from|join)\s+((?:"[^"]+"|\w+)(?:\.(?:"[^"]+"|\w+))?)/gi;
-  let match;
-  while ((match = regex.exec(sql)) !== null) {
-    const rawRef = match[2];
-    const parts = rawRef.split(".");
-    if (parts.length === 1) {
-      refs.push({
-        schema: "public",
-        object: normalizeIdentifier(parts[0]),
-        raw: rawRef
-      });
-    } else {
-      refs.push({
-        schema: normalizeIdentifier(parts[0]),
-        object: normalizeIdentifier(parts[1]),
-        raw: rawRef
-      });
-    }
-  }
-  return refs;
-}
-
-function validateReferencedObjects(sql, schemaObjects) {
-  const allowed = new Set(
-    (schemaObjects || []).map((obj) => `${obj.schema_name.toLowerCase()}.${obj.object_name.toLowerCase()}`)
-  );
-
-  const refs = extractReferencedObjects(sql);
-  const unknown = refs.filter((ref) => !allowed.has(`${ref.schema}.${ref.object}`));
-  if (unknown.length === 0) {
-    return { ok: true, errors: [], refs };
-  }
-
-  return {
-    ok: false,
-    errors: [`Unknown or non-allowlisted objects referenced: ${unknown.map((u) => u.raw).join(", ")}`],
-    refs
-  };
-}
-
-function validateReadOnly(sql) {
-  const normalized = String(sql || "").trim().toLowerCase();
-  if (!normalized) {
-    return { ok: false, errors: ["SQL is empty"] };
-  }
-
-  if (!(normalized.startsWith("select") || normalized.startsWith("with"))) {
-    return { ok: false, errors: ["Only SELECT queries are allowed"] };
-  }
-
-  const blocked = BLOCKED_SQL_KEYWORDS.find((keyword) =>
-    new RegExp(`\\b${keyword}\\b`, "i").test(normalized)
-  );
-  if (blocked) {
-    return { ok: false, errors: [`Blocked SQL keyword detected: ${blocked}`] };
-  }
-
-  return { ok: true, errors: [] };
-}
-
 function validateAndNormalizeSql(rawSql, opts = {}) {
   const maxRows = Number(opts.maxRows || 1000);
   const schemaObjects = Array.isArray(opts.schemaObjects) ? opts.schemaObjects : [];
@@ -141,12 +61,7 @@ function validateAndNormalizeSql(rawSql, opts = {}) {
 
   sql = ensureLimit(sql, maxRows);
 
-  const readOnly = validateReadOnly(sql);
-  if (!readOnly.ok) {
-    return { ok: false, sql, errors: readOnly.errors, refs: [] };
-  }
-
-  const refsCheck = validateReferencedObjects(sql, schemaObjects);
+  const refsCheck = validateAstReadOnly(sql, schemaObjects);
   if (!refsCheck.ok) {
     return { ok: false, sql, errors: refsCheck.errors, refs: refsCheck.refs };
   }

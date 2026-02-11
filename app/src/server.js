@@ -4,6 +4,7 @@ const { PostgresAdapter } = require("./adapters/postgresAdapter");
 const { runPostgresIntrospection } = require("./services/introspectionService");
 const { generateSqlWithRouting } = require("./services/llmSqlService");
 const { validateAndNormalizeSql } = require("./services/sqlSafety");
+const { evaluateExplainBudget } = require("./services/queryBudget");
 const { OpenAiAdapter } = require("./adapters/llm/openAiAdapter");
 const { GeminiAdapter } = require("./adapters/llm/geminiAdapter");
 const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
@@ -15,6 +16,9 @@ const PORT = Number(process.env.PORT || 8080);
 const LLM_PROVIDERS = new Set(["openai", "gemini", "deepseek"]);
 const ENTITY_TYPES = new Set(["table", "column", "metric", "dimension", "rule"]);
 const ROUTING_STRATEGIES = new Set(["ordered_fallback", "cost_optimized", "latency_optimized"]);
+const EXPLAIN_BUDGET_ENABLED = String(process.env.EXPLAIN_BUDGET_ENABLED || "true") === "true";
+const EXPLAIN_MAX_TOTAL_COST = Number(process.env.EXPLAIN_MAX_TOTAL_COST || 500000);
+const EXPLAIN_MAX_PLAN_ROWS = Number(process.env.EXPLAIN_MAX_PLAN_ROWS || 1000000);
 
 async function checkDatabase() {
   try {
@@ -499,6 +503,40 @@ async function handleRunSession(req, res, sessionId) {
 
       await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
       return json(res, 400, { error: "invalid_sql", details: validationErrors, sql: generatedSql });
+    }
+
+    if (EXPLAIN_BUDGET_ENABLED) {
+      const explainRows = await adapter.explain(safeSql);
+      const budget = evaluateExplainBudget(explainRows, {
+        maxTotalCost: EXPLAIN_MAX_TOTAL_COST,
+        maxPlanRows: EXPLAIN_MAX_PLAN_ROWS
+      });
+
+      validationJson.explain_budget = budget;
+      if (!budget.ok) {
+        await appDb.query(
+          `
+            INSERT INTO query_attempts (
+              session_id,
+              llm_provider,
+              model,
+              prompt_version,
+              generated_sql,
+              validation_result_json,
+              latency_ms
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `,
+          [sessionId, usedProvider, usedModel, promptVersion, safeSql, validationJson, Date.now() - generationStartedAt]
+        );
+
+        await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
+        return json(res, 400, {
+          error: "query_budget_exceeded",
+          details: budget.errors,
+          metrics: budget.metrics,
+          sql: safeSql
+        });
+      }
     }
 
     const execution = await adapter.executeReadOnly(safeSql, { timeoutMs, maxRows });

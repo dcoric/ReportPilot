@@ -1,17 +1,5 @@
 const { Pool } = require("pg");
-
-const BLOCKED_SQL_KEYWORDS = [
-  "insert",
-  "update",
-  "delete",
-  "merge",
-  "alter",
-  "drop",
-  "truncate",
-  "create",
-  "grant",
-  "revoke"
-];
+const { validateAstReadOnly } = require("../services/sqlAstValidator");
 
 class PostgresAdapter {
   constructor(connectionString) {
@@ -150,24 +138,7 @@ class PostgresAdapter {
   }
 
   async validateSql(sql) {
-    const normalized = (sql || "").trim().toLowerCase();
-    if (!normalized) {
-      return { ok: false, errors: ["SQL is empty"] };
-    }
-
-    if (!(normalized.startsWith("select") || normalized.startsWith("with"))) {
-      return { ok: false, errors: ["Only SELECT queries are allowed"] };
-    }
-
-    const blocked = BLOCKED_SQL_KEYWORDS.find((keyword) =>
-      new RegExp(`\\b${keyword}\\b`, "i").test(normalized)
-    );
-
-    if (blocked) {
-      return { ok: false, errors: [`Blocked SQL keyword detected: ${blocked}`] };
-    }
-
-    return { ok: true, errors: [] };
+    return validateAstReadOnly(sql, []);
   }
 
   async explain(sql) {

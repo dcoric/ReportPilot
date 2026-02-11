@@ -41,8 +41,8 @@ Use this checklist as the execution tracker. Mark items done as implementation p
 ## Phase 3 - NL2SQL Quality and Safety
 
 - [x] Replace temporary SQL generator with LLM-driven SQL generation + fallback routing
-- [ ] AST-based SQL validation with read-only policy enforcement
-- [ ] Add `EXPLAIN` budget checks before execution
+- [x] AST-based SQL validation with read-only policy enforcement
+- [x] Add `EXPLAIN` budget checks before execution
 - [ ] Add query confidence + source citations in response
 - [ ] Capture and re-use user-corrected SQL as examples
 
