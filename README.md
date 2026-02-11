@@ -102,6 +102,7 @@ RAG:
 - `POST /v1/rag/reindex?data_source_id=...`
 - RAG reindex also runs automatically after introspection, semantic changes, and saved feedback examples.
 - `/v1/query/sessions/{id}/run` uses retrieved RAG chunks in prompt context and returns `citations.rag_documents`.
+- Retrieval is hybrid: lexical token matching + local embedding similarity (`RAG_EMBED_DIM`, default `64`).
 
 Quick provider setup example:
 

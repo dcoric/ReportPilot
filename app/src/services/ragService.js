@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const appDb = require("../lib/appDb");
+const { EMBEDDING_MODEL, embedText } = require("./localEmbedding");
 
 async function reindexRagDocuments(dataSourceId) {
   const docs = await buildRagDocuments(dataSourceId);
@@ -9,7 +10,7 @@ async function reindexRagDocuments(dataSourceId) {
 
     for (const doc of docs) {
       const contentHash = sha256(doc.content);
-      await client.query(
+      const insertResult = await client.query(
         `
           INSERT INTO rag_documents (
             data_source_id,
@@ -19,8 +20,23 @@ async function reindexRagDocuments(dataSourceId) {
             metadata_json,
             content_hash
           ) VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING id
         `,
-        [dataSourceId, doc.docType, doc.refId, doc.content, doc.metadata || {}, contentHash]
+        [dataSourceId, doc.docType, doc.refId, doc.content, JSON.stringify(doc.metadata || {}), contentHash]
+      );
+
+      const ragDocumentId = insertResult.rows[0].id;
+      const vector = embedText(doc.content);
+      await client.query(
+        `
+          INSERT INTO rag_embeddings (
+            rag_document_id,
+            embedding_model,
+            vector_json,
+            chunk_idx
+          ) VALUES ($1, $2, $3, 0)
+        `,
+        [ragDocumentId, EMBEDDING_MODEL, JSON.stringify(vector)]
       );
     }
   });

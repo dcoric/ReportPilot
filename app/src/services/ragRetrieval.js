@@ -1,4 +1,5 @@
 const appDb = require("../lib/appDb");
+const { EMBEDDING_MODEL, embedText, cosineSimilarity } = require("./localEmbedding");
 
 async function retrieveRagContext(dataSourceId, question, opts = {}) {
   const limit = Number(opts.limit || 12);
@@ -11,24 +12,29 @@ async function retrieveRagContext(dataSourceId, question, opts = {}) {
   const result = await appDb.query(
     `
       SELECT
-        id,
-        doc_type,
-        ref_id,
-        content,
-        metadata_json
-      FROM rag_documents
-      WHERE data_source_id = $1
-      ORDER BY created_at DESC
+        rd.id,
+        rd.doc_type,
+        rd.ref_id,
+        rd.content,
+        rd.metadata_json,
+        re.vector_json
+      FROM rag_documents rd
+      LEFT JOIN rag_embeddings re
+        ON re.rag_document_id = rd.id
+       AND re.embedding_model = $2
+      WHERE rd.data_source_id = $1
+      ORDER BY rd.created_at DESC
       LIMIT 400
     `,
-    [dataSourceId]
+    [dataSourceId, EMBEDDING_MODEL]
   );
 
   const tokens = tokenize(q);
+  const qVector = embedText(q);
   const ranked = result.rows
     .map((row) => ({
       ...row,
-      score: computeScore(q, tokens, row.content)
+      score: computeHybridScore(q, tokens, qVector, row.content, row.vector_json)
     }))
     .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score);
@@ -55,7 +61,13 @@ function tokenize(text) {
     .filter((t) => t.length >= 2);
 }
 
-function computeScore(question, tokens, content) {
+function computeHybridScore(question, tokens, qVector, content, vectorJson) {
+  const lexical = computeLexicalScore(question, tokens, content);
+  const vector = computeVectorScore(qVector, vectorJson);
+  return Number((lexical + (vector * 2)).toFixed(4));
+}
+
+function computeLexicalScore(question, tokens, content) {
   const haystack = String(content || "").toLowerCase();
   if (!haystack) {
     return 0;
@@ -75,6 +87,18 @@ function computeScore(question, tokens, content) {
   }
 
   return score;
+}
+
+function computeVectorScore(queryVector, vectorJson) {
+  const docVector = Array.isArray(vectorJson) ? vectorJson : null;
+  if (!docVector || docVector.length === 0) {
+    return 0;
+  }
+  const cosine = cosineSimilarity(queryVector, docVector);
+  if (!Number.isFinite(cosine) || cosine <= 0) {
+    return 0;
+  }
+  return cosine;
 }
 
 module.exports = {
