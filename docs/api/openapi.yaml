@@ -1,0 +1,490 @@
+openapi: 3.1.0
+info:
+  title: AI-DB API
+  version: 0.1.0
+  description: API for NL-to-SQL reporting with multi-DB and multi-LLM support.
+servers:
+  - url: https://api.example.com
+tags:
+  - name: Query
+  - name: Admin
+  - name: Providers
+paths:
+  /v1/query/sessions:
+    post:
+      tags: [Query]
+      summary: Create a query session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSessionResponse"
+  /v1/query/sessions/{sessionId}/run:
+    post:
+      tags: [Query]
+      summary: Generate SQL and execute a query session
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunSessionRequest"
+      responses:
+        "200":
+          description: Query executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunSessionResponse"
+  /v1/query/sessions/{sessionId}/feedback:
+    post:
+      tags: [Query]
+      summary: Submit feedback for a query session
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackRequest"
+      responses:
+        "200":
+          description: Feedback stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+  /v1/data-sources:
+    post:
+      tags: [Admin]
+      summary: Register a data source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDataSourceRequest"
+      responses:
+        "201":
+          description: Data source created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataSourceResponse"
+  /v1/data-sources/{dataSourceId}/introspect:
+    post:
+      tags: [Admin]
+      summary: Introspect schema metadata for a data source
+      parameters:
+        - $ref: "#/components/parameters/DataSourceId"
+      responses:
+        "202":
+          description: Introspection job started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+  /v1/schema-objects:
+    get:
+      tags: [Admin]
+      summary: List schema objects for a data source
+      parameters:
+        - in: query
+          name: data_source_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schema objects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SchemaObject"
+                required: [items]
+  /v1/semantic-entities:
+    post:
+      tags: [Admin]
+      summary: Create or update semantic entity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SemanticEntityRequest"
+      responses:
+        "200":
+          description: Semantic entity upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SemanticEntityResponse"
+  /v1/metric-definitions:
+    post:
+      tags: [Admin]
+      summary: Create or update metric definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricDefinitionRequest"
+      responses:
+        "200":
+          description: Metric definition upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricDefinitionResponse"
+  /v1/join-policies:
+    post:
+      tags: [Admin]
+      summary: Create or update join policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinPolicyRequest"
+      responses:
+        "200":
+          description: Join policy upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinPolicyResponse"
+  /v1/rag/reindex:
+    post:
+      tags: [Admin]
+      summary: Trigger reindex for RAG documents
+      parameters:
+        - in: query
+          name: data_source_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Reindex job started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+  /v1/llm/providers:
+    post:
+      tags: [Providers]
+      summary: Register or update an LLM provider config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LlmProviderRequest"
+      responses:
+        "200":
+          description: Provider config upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmProviderResponse"
+  /v1/llm/routing-rules:
+    post:
+      tags: [Providers]
+      summary: Configure provider routing policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutingRuleRequest"
+      responses:
+        "200":
+          description: Routing rule upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingRuleResponse"
+  /v1/health/providers:
+    get:
+      tags: [Providers]
+      summary: Provider health status
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider:
+                          type: string
+                        status:
+                          type: string
+                          enum: [healthy, degraded, down]
+                        checked_at:
+                          type: string
+                          format: date-time
+                      required: [provider, status, checked_at]
+                required: [items]
+components:
+  parameters:
+    SessionId:
+      in: path
+      name: sessionId
+      required: true
+      schema:
+        type: string
+    DataSourceId:
+      in: path
+      name: dataSourceId
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateSessionRequest:
+      type: object
+      properties:
+        data_source_id:
+          type: string
+        question:
+          type: string
+      required: [data_source_id, question]
+    CreateSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        status:
+          type: string
+          enum: [created]
+      required: [session_id, status]
+    RunSessionRequest:
+      type: object
+      properties:
+        llm_provider:
+          type: string
+          enum: [openai, gemini, deepseek]
+        model:
+          type: string
+        max_rows:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        timeout_ms:
+          type: integer
+          minimum: 1000
+          maximum: 120000
+    RunSessionResponse:
+      type: object
+      properties:
+        attempt_id:
+          type: string
+        sql:
+          type: string
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        row_count:
+          type: integer
+        duration_ms:
+          type: integer
+        confidence:
+          type: number
+      required: [attempt_id, sql, columns, rows, row_count, duration_ms, confidence]
+    FeedbackRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        corrected_sql:
+          type: string
+        comment:
+          type: string
+      required: [rating]
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required: [ok]
+    CreateDataSourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        db_type:
+          type: string
+          enum: [postgres]
+        connection_ref:
+          type: string
+      required: [name, db_type, connection_ref]
+    DataSourceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        db_type:
+          type: string
+        status:
+          type: string
+      required: [id, name, db_type, status]
+    JobAcceptedResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued]
+      required: [job_id, status]
+    SchemaObject:
+      type: object
+      properties:
+        id:
+          type: string
+        object_type:
+          type: string
+          enum: [table, view, materialized_view]
+        schema_name:
+          type: string
+        object_name:
+          type: string
+        description:
+          type: string
+      required: [id, object_type, schema_name, object_name]
+    SemanticEntityRequest:
+      type: object
+      properties:
+        data_source_id:
+          type: string
+        entity_type:
+          type: string
+          enum: [table, column, metric, dimension, rule]
+        target_ref:
+          type: string
+        business_name:
+          type: string
+        description:
+          type: string
+      required: [data_source_id, entity_type, target_ref, business_name]
+    SemanticEntityResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        active:
+          type: boolean
+      required: [id, active]
+    MetricDefinitionRequest:
+      type: object
+      properties:
+        semantic_entity_id:
+          type: string
+        sql_expression:
+          type: string
+        grain:
+          type: string
+      required: [semantic_entity_id, sql_expression]
+    MetricDefinitionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+      required: [id]
+    JoinPolicyRequest:
+      type: object
+      properties:
+        data_source_id:
+          type: string
+        left_ref:
+          type: string
+        right_ref:
+          type: string
+        join_type:
+          type: string
+        on_clause:
+          type: string
+        approved:
+          type: boolean
+      required: [data_source_id, left_ref, right_ref, join_type, on_clause, approved]
+    JoinPolicyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+      required: [id]
+    LlmProviderRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [openai, gemini, deepseek]
+        api_key_ref:
+          type: string
+        default_model:
+          type: string
+        enabled:
+          type: boolean
+      required: [provider, api_key_ref, default_model, enabled]
+    LlmProviderResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        enabled:
+          type: boolean
+      required: [provider, enabled]
+    RoutingRuleRequest:
+      type: object
+      properties:
+        data_source_id:
+          type: string
+        primary_provider:
+          type: string
+          enum: [openai, gemini, deepseek]
+        fallback_providers:
+          type: array
+          items:
+            type: string
+            enum: [openai, gemini, deepseek]
+        strategy:
+          type: string
+          enum: [ordered_fallback, cost_optimized, latency_optimized]
+      required: [data_source_id, primary_provider, fallback_providers, strategy]
+    RoutingRuleResponse:
+      type: object
+      properties:
+        id:
+          type: string
+      required: [id]

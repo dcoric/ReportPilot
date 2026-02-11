@@ -1,0 +1,16 @@
+{
+  "name": "ai-db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-DB NL to SQL backend (bootstrap runtime)",
+  "scripts": {
+    "start": "node app/src/start.js",
+    "migrate": "node app/src/migrate.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
