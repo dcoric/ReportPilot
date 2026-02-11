@@ -18,7 +18,8 @@ async function generateSqlWithRouting(input) {
     columns,
     semanticEntities,
     metricDefinitions,
-    joinPolicies
+    joinPolicies,
+    ragDocuments
   } = input;
 
   const providerConfigs = await loadProviderConfigs();
@@ -31,7 +32,8 @@ async function generateSqlWithRouting(input) {
     columns,
     semanticEntities,
     metricDefinitions,
-    joinPolicies
+    joinPolicies,
+    ragDocuments
   });
 
   const attempts = [];
@@ -223,6 +225,16 @@ function buildSqlPrompt(context) {
     .slice(0, 30)
     .map((policy) => `- ${policy.left_ref} ${policy.join_type} ${policy.right_ref} ON ${policy.on_clause}`);
 
+  const ragLines = (context.ragDocuments || [])
+    .slice(0, 16)
+    .map((doc) => {
+      const summary = String(doc.content || "")
+        .split("\n")
+        .slice(0, 6)
+        .join("\n");
+      return `- [${doc.doc_type}] ref=${doc.ref_id} score=${Number(doc.score || 0).toFixed(3)}\n${indent(summary, 2)}`;
+    });
+
   return [
     "Task:",
     "Generate one PostgreSQL SELECT query for the user question.",
@@ -249,8 +261,19 @@ function buildSqlPrompt(context) {
     metricLines.length > 0 ? metricLines.join("\n") : "- none",
     "",
     "Approved join policies:",
-    joinPolicyLines.length > 0 ? joinPolicyLines.join("\n") : "- none"
+    joinPolicyLines.length > 0 ? joinPolicyLines.join("\n") : "- none",
+    "",
+    "Retrieved RAG context (highest relevance):",
+    ragLines.length > 0 ? ragLines.join("\n") : "- none"
   ].join("\n");
+}
+
+function indent(text, spaces) {
+  const prefix = " ".repeat(spaces);
+  return String(text || "")
+    .split("\n")
+    .map((line) => `${prefix}${line}`)
+    .join("\n");
 }
 
 module.exports = {

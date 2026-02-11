@@ -97,6 +97,12 @@ LLM provider config:
 - `POST /v1/llm/routing-rules`
 - `GET /v1/health/providers`
 
+RAG:
+
+- `POST /v1/rag/reindex?data_source_id=...`
+- RAG reindex also runs automatically after introspection, semantic changes, and saved feedback examples.
+- `/v1/query/sessions/{id}/run` uses retrieved RAG chunks in prompt context and returns `citations.rag_documents`.
+
 Quick provider setup example:
 
 ```bash

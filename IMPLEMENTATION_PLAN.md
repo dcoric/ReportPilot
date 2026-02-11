@@ -48,10 +48,11 @@ Use this checklist as the execution tracker. Mark items done as implementation p
 
 ## Phase 4 - RAG Layer
 
-- [ ] Build chunking pipeline for schema/semantic/policy/example docs
+- [x] Build chunking pipeline for schema/semantic/policy/example docs
 - [ ] Build embedding + retrieval pipeline (hybrid retrieval)
-- [ ] Add RAG reindex trigger flow after introspection/semantic changes
-- [ ] Use retrieved context in NL2SQL generation
+- [x] Add RAG reindex trigger flow after introspection/semantic changes
+- [x] Use retrieved context in NL2SQL generation
+- [ ] Baseline lexical retrieval implemented; next step is vector embeddings + reranking
 
 ## Phase 5 - Evaluation and Hardening
 

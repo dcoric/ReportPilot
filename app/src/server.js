@@ -6,6 +6,8 @@ const { generateSqlWithRouting } = require("./services/llmSqlService");
 const { validateAndNormalizeSql } = require("./services/sqlSafety");
 const { evaluateExplainBudget } = require("./services/queryBudget");
 const { buildCitations, computeConfidence } = require("./services/queryResponse");
+const { reindexRagDocuments } = require("./services/ragService");
+const { retrieveRagContext } = require("./services/ragRetrieval");
 const { OpenAiAdapter } = require("./adapters/llm/openAiAdapter");
 const { GeminiAdapter } = require("./adapters/llm/geminiAdapter");
 const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
@@ -32,6 +34,17 @@ async function checkDatabase() {
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
+}
+
+function triggerRagReindexAsync(dataSourceId) {
+  if (!dataSourceId) {
+    return;
+  }
+  setImmediate(() => {
+    reindexRagDocuments(dataSourceId).catch((err) => {
+      console.error(`[rag] reindex failed for ${dataSourceId}: ${err.message}`);
+    });
+  });
 }
 
 async function handleCreateDataSource(req, res) {
@@ -70,6 +83,7 @@ async function runIntrospectionJob(jobId, dataSource) {
     );
 
     await runPostgresIntrospection(dataSource);
+    await reindexRagDocuments(dataSource.id);
 
     await appDb.query(
       `
@@ -186,6 +200,7 @@ async function handleUpsertSemanticEntity(req, res) {
     if (updateResult.rowCount === 0) {
       return json(res, 404, { error: "not_found", message: "Semantic entity not found" });
     }
+    triggerRagReindexAsync(dataSourceId);
     return json(res, 200, updateResult.rows[0]);
   }
 
@@ -205,6 +220,7 @@ async function handleUpsertSemanticEntity(req, res) {
     [dataSourceId, entityType, targetRef, businessName, description || null, owner || null, active]
   );
 
+  triggerRagReindexAsync(dataSourceId);
   return json(res, 200, insertResult.rows[0]);
 }
 
@@ -217,6 +233,16 @@ async function handleUpsertMetricDefinition(req, res) {
   }
 
   if (id) {
+    const sourceResult = await appDb.query(
+      `
+        SELECT se.data_source_id
+        FROM metric_definitions md
+        JOIN semantic_entities se ON se.id = md.semantic_entity_id
+        WHERE md.id = $1
+      `,
+      [id]
+    );
+
     const updateResult = await appDb.query(
       `
         UPDATE metric_definitions
@@ -234,8 +260,16 @@ async function handleUpsertMetricDefinition(req, res) {
     if (updateResult.rowCount === 0) {
       return json(res, 404, { error: "not_found", message: "Metric definition not found" });
     }
+    const dataSourceId = sourceResult.rows[0]?.data_source_id || null;
+    triggerRagReindexAsync(dataSourceId);
     return json(res, 200, updateResult.rows[0]);
   }
+
+  const sourceResult = await appDb.query(
+    "SELECT data_source_id FROM semantic_entities WHERE id = $1",
+    [semanticEntityId]
+  );
+  const dataSourceId = sourceResult.rows[0]?.data_source_id || null;
 
   const insertResult = await appDb.query(
     `
@@ -246,6 +280,7 @@ async function handleUpsertMetricDefinition(req, res) {
     [semanticEntityId, sqlExpression, grain || null, filtersJson || null]
   );
 
+  triggerRagReindexAsync(dataSourceId);
   return json(res, 200, insertResult.rows[0]);
 }
 
@@ -286,6 +321,7 @@ async function handleUpsertJoinPolicy(req, res) {
     if (updateResult.rowCount === 0) {
       return json(res, 404, { error: "not_found", message: "Join policy not found" });
     }
+    triggerRagReindexAsync(dataSourceId);
     return json(res, 200, updateResult.rows[0]);
   }
 
@@ -305,6 +341,7 @@ async function handleUpsertJoinPolicy(req, res) {
     [dataSourceId, leftRef, rightRef, joinType, onClause, approved, notes || null]
   );
 
+  triggerRagReindexAsync(dataSourceId);
   return json(res, 200, insertResult.rows[0]);
 }
 
@@ -430,6 +467,8 @@ async function handleRunSession(req, res, sessionId) {
     [session.data_source_id]
   );
 
+  const ragDocuments = await retrieveRagContext(session.data_source_id, session.question, { limit: 12 });
+
   let generatedSql;
   let usedProvider = "unknown";
   let usedModel = requestedModel || "unknown";
@@ -446,7 +485,8 @@ async function handleRunSession(req, res, sessionId) {
       columns: columnsResult.rows,
       semanticEntities: semanticEntitiesResult.rows,
       metricDefinitions: metricDefinitionsResult.rows,
-      joinPolicies: joinPoliciesResult.rows
+      joinPolicies: joinPoliciesResult.rows,
+      ragDocuments
     });
 
     generatedSql = generation.sql;
@@ -551,6 +591,12 @@ async function handleRunSession(req, res, sessionId) {
       metricDefinitions: metricDefinitionsResult.rows,
       joinPolicies: joinPoliciesResult.rows
     });
+    citations.rag_documents = ragDocuments.map((doc) => ({
+      id: doc.id,
+      doc_type: doc.doc_type,
+      ref_id: doc.ref_id,
+      score: Number(doc.score || 0)
+    }));
     const confidence = computeConfidence({
       provider: usedProvider,
       attempts: generationAttempts,
@@ -690,6 +736,7 @@ async function handleFeedback(req, res, sessionId) {
         [session.data_source_id, session.question, normalized.sql, rating / 5]
       );
       exampleSaved = true;
+      triggerRagReindexAsync(session.data_source_id);
     }
   }
 
@@ -822,6 +869,25 @@ async function handleProviderHealth(_req, res) {
   return json(res, 200, { items });
 }
 
+async function handleRagReindex(req, res, requestUrl) {
+  const dataSourceId = requestUrl.searchParams.get("data_source_id");
+  if (!dataSourceId) {
+    return badRequest(res, "data_source_id query parameter is required");
+  }
+
+  const sourceResult = await appDb.query("SELECT id FROM data_sources WHERE id = $1", [dataSourceId]);
+  if (sourceResult.rowCount === 0) {
+    return json(res, 404, { error: "not_found", message: "Data source not found" });
+  }
+
+  const result = await reindexRagDocuments(dataSourceId);
+  return json(res, 202, {
+    job_id: "inline-reindex",
+    status: "succeeded",
+    ...result
+  });
+}
+
 function buildHealthAdapter(provider, apiKeyRef, defaultModel) {
   if (provider === "openai") {
     return new OpenAiAdapter({
@@ -917,6 +983,10 @@ async function routeRequest(req, res) {
 
   if (req.method === "GET" && pathname === "/v1/health/providers") {
     return handleProviderHealth(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/rag/reindex") {
+    return handleRagReindex(req, res, requestUrl);
   }
 
   return notFound(res);
