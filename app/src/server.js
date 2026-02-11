@@ -1,54 +1,829 @@
 const http = require("http");
-const { Client } = require("pg");
+const appDb = require("./lib/appDb");
+const { PostgresAdapter } = require("./adapters/postgresAdapter");
+const { runPostgresIntrospection } = require("./services/introspectionService");
+const { generateSqlWithRouting } = require("./services/llmSqlService");
+const { validateAndNormalizeSql } = require("./services/sqlSafety");
+const { OpenAiAdapter } = require("./adapters/llm/openAiAdapter");
+const { GeminiAdapter } = require("./adapters/llm/geminiAdapter");
+const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
+const { resolveApiKey } = require("./adapters/llm/httpClient");
+const { json, notFound, badRequest, internalError, readJsonBody } = require("./lib/http");
 
 const PORT = Number(process.env.PORT || 8080);
-const DATABASE_URL = process.env.DATABASE_URL;
+
+const LLM_PROVIDERS = new Set(["openai", "gemini", "deepseek"]);
+const ENTITY_TYPES = new Set(["table", "column", "metric", "dimension", "rule"]);
+const ROUTING_STRATEGIES = new Set(["ordered_fallback", "cost_optimized", "latency_optimized"]);
 
 async function checkDatabase() {
-  if (!DATABASE_URL) {
-    return { ok: false, error: "DATABASE_URL is not set" };
-  }
-
-  const client = new Client({ connectionString: DATABASE_URL });
   try {
-    await client.connect();
-    await client.query("SELECT 1");
+    await appDb.query("SELECT 1");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
-  } finally {
-    await client.end().catch(() => undefined);
   }
 }
 
-function json(res, statusCode, payload) {
-  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(payload));
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+async function handleCreateDataSource(req, res) {
+  const body = await readJsonBody(req);
+  const { name, db_type: dbType, connection_ref: connectionRef } = body;
+
+  if (!name || !dbType || !connectionRef) {
+    return badRequest(res, "name, db_type and connection_ref are required");
+  }
+
+  if (dbType !== "postgres") {
+    return badRequest(res, "Only postgres is supported in the current implementation");
+  }
+
+  const result = await appDb.query(
+    `
+      INSERT INTO data_sources (name, db_type, connection_ref, status)
+      VALUES ($1, $2, $3, 'active')
+      RETURNING id, name, db_type, status
+    `,
+    [name, dbType, connectionRef]
+  );
+
+  return json(res, 201, result.rows[0]);
+}
+
+async function runIntrospectionJob(jobId, dataSource) {
+  try {
+    await appDb.query(
+      `
+        UPDATE introspection_jobs
+        SET status = 'running', updated_at = NOW()
+        WHERE id = $1
+      `,
+      [jobId]
+    );
+
+    await runPostgresIntrospection(dataSource);
+
+    await appDb.query(
+      `
+        UPDATE introspection_jobs
+        SET status = 'succeeded', updated_at = NOW()
+        WHERE id = $1
+      `,
+      [jobId]
+    );
+  } catch (err) {
+    await appDb.query(
+      `
+        UPDATE introspection_jobs
+        SET status = 'failed', error_message = $2, updated_at = NOW()
+        WHERE id = $1
+      `,
+      [jobId, err.message]
+    );
+    console.error(`[introspection] Job ${jobId} failed: ${err.message}`);
+  }
+}
+
+async function handleIntrospect(req, res, dataSourceId) {
+  const result = await appDb.query(
+    "SELECT id, db_type, connection_ref FROM data_sources WHERE id = $1",
+    [dataSourceId]
+  );
+  const dataSource = result.rows[0];
+  if (!dataSource) {
+    return json(res, 404, { error: "not_found", message: "Data source not found" });
+  }
+
+  if (dataSource.db_type !== "postgres") {
+    return badRequest(res, "Only postgres introspection is supported right now");
+  }
+
+  const jobInsert = await appDb.query(
+    `
+      INSERT INTO introspection_jobs (data_source_id, status)
+      VALUES ($1, 'queued')
+      RETURNING id
+    `,
+    [dataSourceId]
+  );
+  const jobId = jobInsert.rows[0].id;
+
+  setImmediate(() => {
+    runIntrospectionJob(jobId, dataSource).catch((err) => {
+      console.error(`[introspection] Unexpected error for job ${jobId}: ${err.message}`);
+    });
+  });
+
+  return json(res, 202, { job_id: jobId, status: "queued" });
+}
+
+async function handleListSchemaObjects(req, res, requestUrl) {
+  const dataSourceId = requestUrl.searchParams.get("data_source_id");
+  if (!dataSourceId) {
+    return badRequest(res, "data_source_id query parameter is required");
+  }
+
+  const result = await appDb.query(
+    `
+      SELECT id, object_type, schema_name, object_name, description
+      FROM schema_objects
+      WHERE data_source_id = $1
+      ORDER BY schema_name, object_name
+    `,
+    [dataSourceId]
+  );
+
+  return json(res, 200, { items: result.rows });
+}
+
+async function handleUpsertSemanticEntity(req, res) {
+  const body = await readJsonBody(req);
+  const {
+    id,
+    data_source_id: dataSourceId,
+    entity_type: entityType,
+    target_ref: targetRef,
+    business_name: businessName,
+    description,
+    owner,
+    active
+  } = body;
+
+  if (!dataSourceId || !entityType || !targetRef || !businessName) {
+    return badRequest(res, "data_source_id, entity_type, target_ref and business_name are required");
+  }
+
+  if (!ENTITY_TYPES.has(entityType)) {
+    return badRequest(res, "Invalid entity_type");
+  }
+
+  if (id) {
+    const updateResult = await appDb.query(
+      `
+        UPDATE semantic_entities
+        SET
+          data_source_id = $2,
+          entity_type = $3,
+          target_ref = $4,
+          business_name = $5,
+          description = $6,
+          owner = $7,
+          active = COALESCE($8, active)
+        WHERE id = $1
+        RETURNING id, active
+      `,
+      [id, dataSourceId, entityType, targetRef, businessName, description || null, owner || null, active]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return json(res, 404, { error: "not_found", message: "Semantic entity not found" });
+    }
+    return json(res, 200, updateResult.rows[0]);
+  }
+
+  const insertResult = await appDb.query(
+    `
+      INSERT INTO semantic_entities (
+        data_source_id,
+        entity_type,
+        target_ref,
+        business_name,
+        description,
+        owner,
+        active
+      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, TRUE))
+      RETURNING id, active
+    `,
+    [dataSourceId, entityType, targetRef, businessName, description || null, owner || null, active]
+  );
+
+  return json(res, 200, insertResult.rows[0]);
+}
+
+async function handleUpsertMetricDefinition(req, res) {
+  const body = await readJsonBody(req);
+  const { id, semantic_entity_id: semanticEntityId, sql_expression: sqlExpression, grain, filters_json: filtersJson } = body;
+
+  if (!semanticEntityId || !sqlExpression) {
+    return badRequest(res, "semantic_entity_id and sql_expression are required");
+  }
+
+  if (id) {
+    const updateResult = await appDb.query(
+      `
+        UPDATE metric_definitions
+        SET
+          semantic_entity_id = $2,
+          sql_expression = $3,
+          grain = $4,
+          filters_json = $5
+        WHERE id = $1
+        RETURNING id
+      `,
+      [id, semanticEntityId, sqlExpression, grain || null, filtersJson || null]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return json(res, 404, { error: "not_found", message: "Metric definition not found" });
+    }
+    return json(res, 200, updateResult.rows[0]);
+  }
+
+  const insertResult = await appDb.query(
+    `
+      INSERT INTO metric_definitions (semantic_entity_id, sql_expression, grain, filters_json)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id
+    `,
+    [semanticEntityId, sqlExpression, grain || null, filtersJson || null]
+  );
+
+  return json(res, 200, insertResult.rows[0]);
+}
+
+async function handleUpsertJoinPolicy(req, res) {
+  const body = await readJsonBody(req);
+  const {
+    id,
+    data_source_id: dataSourceId,
+    left_ref: leftRef,
+    right_ref: rightRef,
+    join_type: joinType,
+    on_clause: onClause,
+    approved,
+    notes
+  } = body;
+
+  if (!dataSourceId || !leftRef || !rightRef || !joinType || !onClause || typeof approved !== "boolean") {
+    return badRequest(res, "data_source_id, left_ref, right_ref, join_type, on_clause, approved are required");
+  }
+
+  if (id) {
+    const updateResult = await appDb.query(
+      `
+        UPDATE join_policies
+        SET
+          data_source_id = $2,
+          left_ref = $3,
+          right_ref = $4,
+          join_type = $5,
+          on_clause = $6,
+          approved = $7,
+          notes = $8
+        WHERE id = $1
+        RETURNING id
+      `,
+      [id, dataSourceId, leftRef, rightRef, joinType, onClause, approved, notes || null]
+    );
+    if (updateResult.rowCount === 0) {
+      return json(res, 404, { error: "not_found", message: "Join policy not found" });
+    }
+    return json(res, 200, updateResult.rows[0]);
+  }
+
+  const insertResult = await appDb.query(
+    `
+      INSERT INTO join_policies (
+        data_source_id,
+        left_ref,
+        right_ref,
+        join_type,
+        on_clause,
+        approved,
+        notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id
+    `,
+    [dataSourceId, leftRef, rightRef, joinType, onClause, approved, notes || null]
+  );
+
+  return json(res, 200, insertResult.rows[0]);
+}
+
+async function handleCreateSession(req, res) {
+  const body = await readJsonBody(req);
+  const { data_source_id: dataSourceId, question } = body;
+
+  if (!dataSourceId || !question) {
+    return badRequest(res, "data_source_id and question are required");
+  }
+
+  const sourceResult = await appDb.query("SELECT id FROM data_sources WHERE id = $1", [dataSourceId]);
+  if (sourceResult.rowCount === 0) {
+    return json(res, 404, { error: "not_found", message: "Data source not found" });
+  }
+
+  const userId = req.headers["x-user-id"] || "anonymous";
+  const sessionResult = await appDb.query(
+    `
+      INSERT INTO query_sessions (user_id, data_source_id, question, status)
+      VALUES ($1, $2, $3, 'created')
+      RETURNING id
+    `,
+    [userId, dataSourceId, question]
+  );
+
+  return json(res, 201, { session_id: sessionResult.rows[0].id, status: "created" });
+}
+
+async function handleRunSession(req, res, sessionId) {
+  const body = await readJsonBody(req);
+  const requestedProvider = body.llm_provider || null;
+  const requestedModel = body.model || null;
+  const maxRows = clamp(Number(body.max_rows || 1000), 1, 100000);
+  const timeoutMs = clamp(Number(body.timeout_ms || 20000), 1000, 120000);
+
+  if (requestedProvider && !LLM_PROVIDERS.has(requestedProvider)) {
+    return badRequest(res, "Unsupported llm_provider");
+  }
+
+  const sessionResult = await appDb.query(
+    `
+      SELECT
+        qs.id AS session_id,
+        qs.question,
+        qs.data_source_id,
+        ds.connection_ref,
+        ds.db_type
+      FROM query_sessions qs
+      JOIN data_sources ds ON ds.id = qs.data_source_id
+      WHERE qs.id = $1
+    `,
+    [sessionId]
+  );
+
+  if (sessionResult.rowCount === 0) {
+    return json(res, 404, { error: "not_found", message: "Session not found" });
+  }
+
+  const session = sessionResult.rows[0];
+  if (session.db_type !== "postgres") {
+    return badRequest(res, "Only postgres data sources are supported for execution");
+  }
+
+  const schemaObjectsResult = await appDb.query(
+    `
+      SELECT id, schema_name, object_name, object_type
+      FROM schema_objects
+      WHERE data_source_id = $1 AND object_type IN ('table', 'view', 'materialized_view')
+      ORDER BY schema_name, object_name
+    `,
+    [session.data_source_id]
+  );
+
+  const columnsResult = await appDb.query(
+    `
+      SELECT
+        so.schema_name,
+        so.object_name,
+        c.column_name,
+        c.data_type
+      FROM columns c
+      JOIN schema_objects so ON so.id = c.schema_object_id
+      WHERE so.data_source_id = $1
+      ORDER BY so.schema_name, so.object_name, c.ordinal_position
+    `,
+    [session.data_source_id]
+  );
+
+  const semanticEntitiesResult = await appDb.query(
+    `
+      SELECT entity_type, target_ref, business_name
+      FROM semantic_entities
+      WHERE data_source_id = $1 AND active = TRUE
+      ORDER BY business_name
+    `,
+    [session.data_source_id]
+  );
+
+  const metricDefinitionsResult = await appDb.query(
+    `
+      SELECT
+        md.sql_expression,
+        md.grain,
+        se.business_name
+      FROM metric_definitions md
+      JOIN semantic_entities se ON se.id = md.semantic_entity_id
+      WHERE se.data_source_id = $1 AND se.active = TRUE
+      ORDER BY se.business_name
+    `,
+    [session.data_source_id]
+  );
+
+  const joinPoliciesResult = await appDb.query(
+    `
+      SELECT left_ref, right_ref, join_type, on_clause
+      FROM join_policies
+      WHERE data_source_id = $1 AND approved = TRUE
+      ORDER BY left_ref, right_ref
+    `,
+    [session.data_source_id]
+  );
+
+  let generatedSql;
+  let usedProvider = "unknown";
+  let usedModel = requestedModel || "unknown";
+  let generationAttempts = [];
+  let promptVersion = "v2-llm-router";
+  try {
+    const generation = await generateSqlWithRouting({
+      dataSourceId: session.data_source_id,
+      question: session.question,
+      maxRows,
+      requestedProvider,
+      requestedModel,
+      schemaObjects: schemaObjectsResult.rows,
+      columns: columnsResult.rows,
+      semanticEntities: semanticEntitiesResult.rows,
+      metricDefinitions: metricDefinitionsResult.rows,
+      joinPolicies: joinPoliciesResult.rows
+    });
+
+    generatedSql = generation.sql;
+    usedProvider = generation.provider;
+    usedModel = generation.model || usedModel;
+    generationAttempts = generation.attempts || [];
+    promptVersion = generation.promptVersion || promptVersion;
+  } catch (err) {
+    await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
+    return json(res, 502, { error: "llm_generation_failed", message: err.message });
+  }
+
+  const adapter = new PostgresAdapter(session.connection_ref);
+  const generationStartedAt = Date.now();
+
+  try {
+    const safety = validateAndNormalizeSql(generatedSql, {
+      maxRows,
+      schemaObjects: schemaObjectsResult.rows
+    });
+
+    let validationErrors = [];
+    let safeSql = generatedSql;
+
+    if (!safety.ok) {
+      validationErrors = safety.errors;
+    } else {
+      safeSql = safety.sql;
+      const adapterValidation = await adapter.validateSql(safeSql);
+      if (!adapterValidation.ok) {
+        validationErrors = adapterValidation.errors;
+      }
+    }
+
+    const validationJson = {
+      ok: validationErrors.length === 0,
+      errors: validationErrors,
+      references: safety.refs || [],
+      provider_attempts: generationAttempts
+    };
+
+    if (validationErrors.length > 0) {
+      await appDb.query(
+        `
+          INSERT INTO query_attempts (
+            session_id,
+            llm_provider,
+            model,
+            prompt_version,
+            generated_sql,
+            validation_result_json,
+            latency_ms
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [sessionId, usedProvider, usedModel, promptVersion, generatedSql, validationJson, Date.now() - generationStartedAt]
+      );
+
+      await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
+      return json(res, 400, { error: "invalid_sql", details: validationErrors, sql: generatedSql });
+    }
+
+    const execution = await adapter.executeReadOnly(safeSql, { timeoutMs, maxRows });
+    const attemptResult = await appDb.query(
+      `
+        INSERT INTO query_attempts (
+          session_id,
+          llm_provider,
+          model,
+          prompt_version,
+          generated_sql,
+          validation_result_json,
+          latency_ms
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+      `,
+      [
+        sessionId,
+        usedProvider,
+        usedModel,
+        promptVersion,
+        safeSql,
+        validationJson,
+        Date.now() - generationStartedAt
+      ]
+    );
+
+    const attemptId = attemptResult.rows[0].id;
+    await appDb.query(
+      `
+        INSERT INTO query_results_meta (
+          attempt_id,
+          row_count,
+          duration_ms,
+          bytes_scanned,
+          truncated
+        ) VALUES ($1, $2, $3, NULL, $4)
+      `,
+      [attemptId, execution.rowCount, execution.durationMs, execution.truncated]
+    );
+
+    await appDb.query("UPDATE query_sessions SET status = 'completed' WHERE id = $1", [sessionId]);
+
+    return json(res, 200, {
+      attempt_id: attemptId,
+      sql: safeSql,
+      columns: execution.columns,
+      rows: execution.rows,
+      row_count: execution.rowCount,
+      duration_ms: execution.durationMs,
+      confidence: usedProvider === "local-fallback" ? 0.2 : 0.65
+    });
+  } catch (err) {
+    await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
+    return json(res, 500, {
+      error: "query_execution_failed",
+      message: err.message,
+      sql: generatedSql
+    });
+  } finally {
+    await adapter.close();
+  }
+}
+
+async function handleFeedback(req, res, sessionId) {
+  const body = await readJsonBody(req);
+  const { rating, corrected_sql: correctedSql, comment } = body;
+
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    return badRequest(res, "rating must be an integer between 1 and 5");
+  }
+
+  const sessionResult = await appDb.query("SELECT id FROM query_sessions WHERE id = $1", [sessionId]);
+  if (sessionResult.rowCount === 0) {
+    return json(res, 404, { error: "not_found", message: "Session not found" });
+  }
+
+  await appDb.query(
+    `
+      INSERT INTO user_feedback (session_id, rating, corrected_sql, comment)
+      VALUES ($1, $2, $3, $4)
+    `,
+    [sessionId, rating, correctedSql || null, comment || null]
+  );
+
+  return json(res, 200, { ok: true });
+}
+
+async function handleProviderUpsert(req, res) {
+  const body = await readJsonBody(req);
+  const { provider, api_key_ref: apiKeyRef, default_model: defaultModel, enabled } = body;
+  if (!provider || !apiKeyRef || !defaultModel || typeof enabled !== "boolean") {
+    return badRequest(res, "provider, api_key_ref, default_model, enabled are required");
+  }
+
+  if (!LLM_PROVIDERS.has(provider)) {
+    return badRequest(res, "Invalid provider");
+  }
+
+  const result = await appDb.query(
+    `
+      INSERT INTO llm_providers (provider, api_key_ref, default_model, enabled, updated_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (provider)
+      DO UPDATE SET
+        api_key_ref = EXCLUDED.api_key_ref,
+        default_model = EXCLUDED.default_model,
+        enabled = EXCLUDED.enabled,
+        updated_at = NOW()
+      RETURNING provider, enabled
+    `,
+    [provider, apiKeyRef, defaultModel, enabled]
+  );
+
+  return json(res, 200, result.rows[0]);
+}
+
+async function handleRoutingRuleUpsert(req, res) {
+  const body = await readJsonBody(req);
+  const {
+    data_source_id: dataSourceId,
+    primary_provider: primaryProvider,
+    fallback_providers: fallbackProviders,
+    strategy
+  } = body;
+
+  if (!dataSourceId || !primaryProvider || !Array.isArray(fallbackProviders) || !strategy) {
+    return badRequest(res, "data_source_id, primary_provider, fallback_providers, strategy are required");
+  }
+
+  if (!LLM_PROVIDERS.has(primaryProvider)) {
+    return badRequest(res, "Invalid primary_provider");
+  }
+
+  if (!ROUTING_STRATEGIES.has(strategy)) {
+    return badRequest(res, "Invalid strategy");
+  }
+
+  const invalidFallback = fallbackProviders.find((provider) => !LLM_PROVIDERS.has(provider));
+  if (invalidFallback) {
+    return badRequest(res, `Invalid fallback provider: ${invalidFallback}`);
+  }
+
+  const dataSourceResult = await appDb.query("SELECT id FROM data_sources WHERE id = $1", [dataSourceId]);
+  if (dataSourceResult.rowCount === 0) {
+    return json(res, 404, { error: "not_found", message: "Data source not found" });
+  }
+
+  const result = await appDb.query(
+    `
+      INSERT INTO llm_routing_rules (
+        data_source_id,
+        primary_provider,
+        fallback_providers,
+        strategy,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (data_source_id)
+      DO UPDATE SET
+        primary_provider = EXCLUDED.primary_provider,
+        fallback_providers = EXCLUDED.fallback_providers,
+        strategy = EXCLUDED.strategy,
+        updated_at = NOW()
+      RETURNING id
+    `,
+    [dataSourceId, primaryProvider, fallbackProviders, strategy]
+  );
+
+  return json(res, 200, result.rows[0]);
+}
+
+async function handleProviderHealth(_req, res) {
+  const result = await appDb.query(
+    `
+      SELECT provider, api_key_ref, default_model, enabled
+      FROM llm_providers
+      ORDER BY provider
+    `
+  );
+
+  const checkedAt = new Date().toISOString();
+  const items = [];
+
+  for (const row of result.rows) {
+    if (!row.enabled) {
+      items.push({
+        provider: row.provider,
+        status: "down",
+        checked_at: checkedAt
+      });
+      continue;
+    }
+
+    try {
+      const adapter = buildHealthAdapter(row.provider, row.api_key_ref, row.default_model);
+      await adapter.healthCheck();
+      items.push({
+        provider: row.provider,
+        status: "healthy",
+        checked_at: checkedAt
+      });
+    } catch (err) {
+      items.push({
+        provider: row.provider,
+        status: "degraded",
+        checked_at: checkedAt,
+        reason: err.message
+      });
+    }
+  }
+
+  return json(res, 200, { items });
+}
+
+function buildHealthAdapter(provider, apiKeyRef, defaultModel) {
+  if (provider === "openai") {
+    return new OpenAiAdapter({
+      apiKey: resolveApiKey(apiKeyRef, "OPENAI_API_KEY"),
+      defaultModel
+    });
+  }
+  if (provider === "gemini") {
+    return new GeminiAdapter({
+      apiKey: resolveApiKey(apiKeyRef, "GEMINI_API_KEY"),
+      defaultModel
+    });
+  }
+  if (provider === "deepseek") {
+    return new DeepSeekAdapter({
+      apiKey: resolveApiKey(apiKeyRef, "DEEPSEEK_API_KEY"),
+      defaultModel
+    });
+  }
+  throw new Error(`Unsupported provider: ${provider}`);
+}
+
+async function routeRequest(req, res) {
+  const requestUrl = new URL(req.url, "http://localhost");
+  const { pathname } = requestUrl;
+
+  if (req.method === "GET" && pathname === "/health") {
+    return json(res, 200, { status: "ok" });
+  }
+
+  if (req.method === "GET" && pathname === "/ready") {
+    const db = await checkDatabase();
+    if (db.ok) {
+      return json(res, 200, { status: "ready" });
+    }
+    return json(res, 503, { status: "not_ready", reason: db.error });
+  }
+
+  if (req.method === "GET" && pathname === "/") {
+    return json(res, 200, {
+      service: "ai-db",
+      status: "running",
+      endpoints: ["/health", "/ready", "/v1/*"]
+    });
+  }
+
+  if (req.method === "POST" && pathname === "/v1/data-sources") {
+    return handleCreateDataSource(req, res);
+  }
+
+  const introspectMatch = pathname.match(/^\/v1\/data-sources\/([^/]+)\/introspect$/);
+  if (req.method === "POST" && introspectMatch) {
+    return handleIntrospect(req, res, introspectMatch[1]);
+  }
+
+  if (req.method === "GET" && pathname === "/v1/schema-objects") {
+    return handleListSchemaObjects(req, res, requestUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/semantic-entities") {
+    return handleUpsertSemanticEntity(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/metric-definitions") {
+    return handleUpsertMetricDefinition(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/join-policies") {
+    return handleUpsertJoinPolicy(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/query/sessions") {
+    return handleCreateSession(req, res);
+  }
+
+  const runMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/run$/);
+  if (req.method === "POST" && runMatch) {
+    return handleRunSession(req, res, runMatch[1]);
+  }
+
+  const feedbackMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/feedback$/);
+  if (req.method === "POST" && feedbackMatch) {
+    return handleFeedback(req, res, feedbackMatch[1]);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/llm/providers") {
+    return handleProviderUpsert(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/llm/routing-rules") {
+    return handleRoutingRuleUpsert(req, res);
+  }
+
+  if (req.method === "GET" && pathname === "/v1/health/providers") {
+    return handleProviderHealth(req, res);
+  }
+
+  return notFound(res);
 }
 
 function startServer() {
   const server = http.createServer(async (req, res) => {
-    if (req.method === "GET" && req.url === "/health") {
-      return json(res, 200, { status: "ok" });
-    }
-
-    if (req.method === "GET" && req.url === "/ready") {
-      const db = await checkDatabase();
-      if (db.ok) {
-        return json(res, 200, { status: "ready" });
+    try {
+      await routeRequest(req, res);
+    } catch (err) {
+      if (err.statusCode === 400) {
+        return badRequest(res, err.message);
       }
-      return json(res, 503, { status: "not_ready", reason: db.error });
+      console.error(`[server] Request failed: ${err.stack || err.message}`);
+      return internalError(res);
     }
-
-    if (req.method === "GET" && req.url === "/") {
-      return json(res, 200, {
-        service: "ai-db",
-        status: "running",
-        endpoints: ["/health", "/ready"]
-      });
-    }
-
-    return json(res, 404, { error: "not_found" });
   });
 
   return new Promise((resolve, reject) => {

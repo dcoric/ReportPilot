@@ -51,3 +51,48 @@ docker compose down -v
 
 - On startup, the app applies SQL files from `db/migrations` to the local Postgres container.
 - Migration state is tracked in the `schema_migrations` table.
+- LLM provider keys can be supplied via `.env` (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`).
+- `ALLOW_RULE_BASED_FALLBACK=true` keeps `/run` functional even when no provider key is configured.
+
+## Current API (Implemented)
+
+Health:
+
+- `GET /health`
+- `GET /ready`
+
+Data sources and schema:
+
+- `POST /v1/data-sources`
+- `POST /v1/data-sources/{id}/introspect`
+- `GET /v1/schema-objects?data_source_id=...`
+
+Semantic/admin:
+
+- `POST /v1/semantic-entities`
+- `POST /v1/metric-definitions`
+- `POST /v1/join-policies`
+
+Query sessions:
+
+- `POST /v1/query/sessions`
+- `POST /v1/query/sessions/{id}/run`
+- `POST /v1/query/sessions/{id}/feedback`
+
+LLM provider config:
+
+- `POST /v1/llm/providers`
+- `POST /v1/llm/routing-rules`
+- `GET /v1/health/providers`
+
+Quick provider setup example:
+
+```bash
+curl -X POST http://localhost:8080/v1/llm/providers \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"openai","api_key_ref":"env:OPENAI_API_KEY","default_model":"gpt-4.1-mini","enabled":true}'
+```
+
+Progress tracker:
+
+- `/Users/dcoric/Projects/ai-db/IMPLEMENTATION_PLAN.md`
