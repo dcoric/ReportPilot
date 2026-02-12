@@ -1,0 +1,482 @@
+[
+  {
+    "id": "q001",
+    "nl_question": "What is the total revenue from all payments?",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT ROUND(COALESCE(SUM(amount), 0)::numeric, 2) AS total_revenue FROM payment;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q002",
+    "nl_question": "How many rentals have we recorded in total?",
+    "expected_tables": ["rental"],
+    "oracle_sql": "SELECT COUNT(*) AS total_rentals FROM rental;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q003",
+    "nl_question": "How many customers are in the system?",
+    "expected_tables": ["customer"],
+    "oracle_sql": "SELECT COUNT(*) AS total_customers FROM customer;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q004",
+    "nl_question": "How many films are in the catalog?",
+    "expected_tables": ["film"],
+    "oracle_sql": "SELECT COUNT(*) AS total_films FROM film;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q005",
+    "nl_question": "What is the average payment amount?",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT ROUND(AVG(amount)::numeric, 2) AS avg_payment_amount FROM payment;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q006",
+    "nl_question": "Show monthly revenue over time.",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT DATE_TRUNC('month', payment_date)::date AS month_start, ROUND(SUM(amount)::numeric, 2) AS revenue FROM payment GROUP BY 1 ORDER BY 1;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q007",
+    "nl_question": "Show monthly rental counts over time.",
+    "expected_tables": ["rental"],
+    "oracle_sql": "SELECT DATE_TRUNC('month', rental_date)::date AS month_start, COUNT(*) AS rental_count FROM rental GROUP BY 1 ORDER BY 1;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q008",
+    "nl_question": "How much revenue did each store generate?",
+    "expected_tables": ["payment", "staff", "store"],
+    "oracle_sql": "SELECT s.store_id, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN staff st ON st.staff_id = p.staff_id JOIN store s ON s.store_id = st.store_id GROUP BY s.store_id ORDER BY s.store_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q009",
+    "nl_question": "How much revenue did each staff member process?",
+    "expected_tables": ["payment", "staff"],
+    "oracle_sql": "SELECT st.staff_id, st.first_name, st.last_name, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN staff st ON st.staff_id = p.staff_id GROUP BY st.staff_id, st.first_name, st.last_name ORDER BY revenue DESC, st.staff_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q010",
+    "nl_question": "Who are the top 10 customers by total payment amount?",
+    "expected_tables": ["payment", "customer"],
+    "oracle_sql": "SELECT c.customer_id, c.first_name, c.last_name, ROUND(SUM(p.amount)::numeric, 2) AS total_paid FROM payment p JOIN customer c ON c.customer_id = p.customer_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_paid DESC, c.customer_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q011",
+    "nl_question": "What are the top 10 most rented films?",
+    "expected_tables": ["rental", "inventory", "film"],
+    "oracle_sql": "SELECT f.film_id, f.title, COUNT(*) AS rental_count FROM rental r JOIN inventory i ON i.inventory_id = r.inventory_id JOIN film f ON f.film_id = i.film_id GROUP BY f.film_id, f.title ORDER BY rental_count DESC, f.film_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q012",
+    "nl_question": "What are the top 10 categories by number of rentals?",
+    "expected_tables": ["rental", "inventory", "film_category", "category"],
+    "oracle_sql": "SELECT c.category_id, c.name, COUNT(*) AS rental_count FROM rental r JOIN inventory i ON i.inventory_id = r.inventory_id JOIN film_category fc ON fc.film_id = i.film_id JOIN category c ON c.category_id = fc.category_id GROUP BY c.category_id, c.name ORDER BY rental_count DESC, c.category_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q013",
+    "nl_question": "What are the top 10 categories by total revenue?",
+    "expected_tables": ["payment", "rental", "inventory", "film_category", "category"],
+    "oracle_sql": "SELECT c.category_id, c.name, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN rental r ON r.rental_id = p.rental_id JOIN inventory i ON i.inventory_id = r.inventory_id JOIN film_category fc ON fc.film_id = i.film_id JOIN category c ON c.category_id = fc.category_id GROUP BY c.category_id, c.name ORDER BY revenue DESC, c.category_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q014",
+    "nl_question": "How many rentals did each film rating get?",
+    "expected_tables": ["rental", "inventory", "film"],
+    "oracle_sql": "SELECT f.rating, COUNT(*) AS rental_count FROM rental r JOIN inventory i ON i.inventory_id = r.inventory_id JOIN film f ON f.film_id = i.film_id GROUP BY f.rating ORDER BY rental_count DESC, f.rating;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q015",
+    "nl_question": "What is the average film length for each rating?",
+    "expected_tables": ["film"],
+    "oracle_sql": "SELECT rating, ROUND(AVG(length)::numeric, 2) AS avg_length FROM film GROUP BY rating ORDER BY rating;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q016",
+    "nl_question": "How many films are in each category?",
+    "expected_tables": ["film_category", "category"],
+    "oracle_sql": "SELECT c.category_id, c.name, COUNT(*) AS film_count FROM film_category fc JOIN category c ON c.category_id = fc.category_id GROUP BY c.category_id, c.name ORDER BY film_count DESC, c.category_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q017",
+    "nl_question": "List the 10 longest films.",
+    "expected_tables": ["film"],
+    "oracle_sql": "SELECT film_id, title, length FROM film ORDER BY length DESC, film_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q018",
+    "nl_question": "List the 10 shortest films that have a positive length.",
+    "expected_tables": ["film"],
+    "oracle_sql": "SELECT film_id, title, length FROM film WHERE length > 0 ORDER BY length ASC, film_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q019",
+    "nl_question": "How many films have replacement cost above 25 dollars?",
+    "expected_tables": ["film"],
+    "oracle_sql": "SELECT COUNT(*) AS films_above_25 FROM film WHERE replacement_cost > 25;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q020",
+    "nl_question": "Show total revenue by day of week.",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT EXTRACT(DOW FROM payment_date)::int AS day_of_week, ROUND(SUM(amount)::numeric, 2) AS revenue FROM payment GROUP BY 1 ORDER BY 1;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q021",
+    "nl_question": "Show total revenue by hour of day.",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT EXTRACT(HOUR FROM payment_date)::int AS hour_of_day, ROUND(SUM(amount)::numeric, 2) AS revenue FROM payment GROUP BY 1 ORDER BY 1;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q022",
+    "nl_question": "How many rentals are currently unreturned?",
+    "expected_tables": ["rental"],
+    "oracle_sql": "SELECT COUNT(*) AS unreturned_rentals FROM rental WHERE return_date IS NULL;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q023",
+    "nl_question": "What is the average rental duration in days for returned rentals?",
+    "expected_tables": ["rental"],
+    "oracle_sql": "SELECT ROUND(AVG(EXTRACT(EPOCH FROM (return_date - rental_date)) / 86400)::numeric, 2) AS avg_rental_days FROM rental WHERE return_date IS NOT NULL;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q024",
+    "nl_question": "How many customers belong to each store?",
+    "expected_tables": ["customer"],
+    "oracle_sql": "SELECT store_id, COUNT(*) AS customer_count FROM customer GROUP BY store_id ORDER BY store_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q025",
+    "nl_question": "How many rentals were fulfilled by each store?",
+    "expected_tables": ["rental", "inventory"],
+    "oracle_sql": "SELECT i.store_id, COUNT(*) AS rental_count FROM rental r JOIN inventory i ON i.inventory_id = r.inventory_id GROUP BY i.store_id ORDER BY i.store_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q026",
+    "nl_question": "How many distinct customers have made at least one payment?",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT COUNT(DISTINCT customer_id) AS paying_customers FROM payment;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "low"
+  },
+  {
+    "id": "q027",
+    "nl_question": "List up to 20 customers who have never made a payment.",
+    "expected_tables": ["customer", "payment"],
+    "oracle_sql": "SELECT c.customer_id, c.first_name, c.last_name FROM customer c LEFT JOIN payment p ON p.customer_id = c.customer_id WHERE p.customer_id IS NULL ORDER BY c.customer_id LIMIT 20;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q028",
+    "nl_question": "How many films were never rented?",
+    "expected_tables": ["film", "inventory", "rental"],
+    "oracle_sql": "SELECT COUNT(*) AS never_rented_films FROM film f WHERE NOT EXISTS (SELECT 1 FROM inventory i JOIN rental r ON r.inventory_id = i.inventory_id WHERE i.film_id = f.film_id);",
+    "result_assertion": "single_value_equal",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q029",
+    "nl_question": "List up to 20 films that were never rented.",
+    "expected_tables": ["film", "inventory", "rental"],
+    "oracle_sql": "SELECT f.film_id, f.title FROM film f WHERE NOT EXISTS (SELECT 1 FROM inventory i JOIN rental r ON r.inventory_id = i.inventory_id WHERE i.film_id = f.film_id) ORDER BY f.film_id LIMIT 20;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q030",
+    "nl_question": "Which 20 actors appear in the most films?",
+    "expected_tables": ["actor", "film_actor"],
+    "oracle_sql": "SELECT a.actor_id, a.first_name, a.last_name, COUNT(*) AS film_count FROM actor a JOIN film_actor fa ON fa.actor_id = a.actor_id GROUP BY a.actor_id, a.first_name, a.last_name ORDER BY film_count DESC, a.actor_id LIMIT 20;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q031",
+    "nl_question": "What is the average number of actors per film?",
+    "expected_tables": ["film_actor"],
+    "oracle_sql": "SELECT ROUND(AVG(actor_count)::numeric, 2) AS avg_actors_per_film FROM (SELECT film_id, COUNT(*) AS actor_count FROM film_actor GROUP BY film_id) t;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q032",
+    "nl_question": "How many films are there per language?",
+    "expected_tables": ["film", "language"],
+    "oracle_sql": "SELECT l.language_id, l.name, COUNT(*) AS film_count FROM film f JOIN language l ON l.language_id = f.language_id GROUP BY l.language_id, l.name ORDER BY film_count DESC, l.language_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q033",
+    "nl_question": "Show monthly rentals for each category.",
+    "expected_tables": ["rental", "inventory", "film_category", "category"],
+    "oracle_sql": "SELECT DATE_TRUNC('month', r.rental_date)::date AS month_start, c.name AS category_name, COUNT(*) AS rental_count FROM rental r JOIN inventory i ON i.inventory_id = r.inventory_id JOIN film_category fc ON fc.film_id = i.film_id JOIN category c ON c.category_id = fc.category_id GROUP BY 1, 2 ORDER BY 1, 2;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q034",
+    "nl_question": "Which 10 cities have the most customers?",
+    "expected_tables": ["customer", "address", "city"],
+    "oracle_sql": "SELECT ci.city_id, ci.city, COUNT(*) AS customer_count FROM customer c JOIN address a ON a.address_id = c.address_id JOIN city ci ON ci.city_id = a.city_id GROUP BY ci.city_id, ci.city ORDER BY customer_count DESC, ci.city_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q035",
+    "nl_question": "Which 10 countries have the most customers?",
+    "expected_tables": ["customer", "address", "city", "country"],
+    "oracle_sql": "SELECT co.country_id, co.country, COUNT(*) AS customer_count FROM customer c JOIN address a ON a.address_id = c.address_id JOIN city ci ON ci.city_id = a.city_id JOIN country co ON co.country_id = ci.country_id GROUP BY co.country_id, co.country ORDER BY customer_count DESC, co.country_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q036",
+    "nl_question": "Which 10 cities generate the highest payment revenue?",
+    "expected_tables": ["payment", "customer", "address", "city"],
+    "oracle_sql": "SELECT ci.city_id, ci.city, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN customer c ON c.customer_id = p.customer_id JOIN address a ON a.address_id = c.address_id JOIN city ci ON ci.city_id = a.city_id GROUP BY ci.city_id, ci.city ORDER BY revenue DESC, ci.city_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q037",
+    "nl_question": "Which 10 countries generate the highest payment revenue?",
+    "expected_tables": ["payment", "customer", "address", "city", "country"],
+    "oracle_sql": "SELECT co.country_id, co.country, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN customer c ON c.customer_id = p.customer_id JOIN address a ON a.address_id = c.address_id JOIN city ci ON ci.city_id = a.city_id JOIN country co ON co.country_id = ci.country_id GROUP BY co.country_id, co.country ORDER BY revenue DESC, co.country_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q038",
+    "nl_question": "Who are the top 20 customers by number of rentals?",
+    "expected_tables": ["rental", "customer"],
+    "oracle_sql": "SELECT c.customer_id, c.first_name, c.last_name, COUNT(*) AS rental_count FROM rental r JOIN customer c ON c.customer_id = r.customer_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY rental_count DESC, c.customer_id LIMIT 20;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q039",
+    "nl_question": "What is each customer's average payment amount, for customers with at least 5 payments?",
+    "expected_tables": ["payment", "customer"],
+    "oracle_sql": "SELECT c.customer_id, c.first_name, c.last_name, ROUND(AVG(p.amount)::numeric, 2) AS avg_payment_amount, COUNT(*) AS payment_count FROM payment p JOIN customer c ON c.customer_id = p.customer_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(*) >= 5 ORDER BY avg_payment_amount DESC, c.customer_id LIMIT 20;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q040",
+    "nl_question": "What percentage of revenue comes from the top 20 customers?",
+    "expected_tables": ["payment"],
+    "oracle_sql": "WITH customer_revenue AS (SELECT customer_id, SUM(amount) AS revenue FROM payment GROUP BY customer_id), totals AS (SELECT SUM(revenue) AS total_revenue FROM customer_revenue), top_customers AS (SELECT SUM(revenue) AS top_revenue FROM (SELECT revenue FROM customer_revenue ORDER BY revenue DESC LIMIT 20) x) SELECT ROUND((top_revenue / NULLIF(total_revenue, 0) * 100)::numeric, 2) AS pct_revenue_top20_customers FROM top_customers, totals;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "high"
+  },
+  {
+    "id": "q041",
+    "nl_question": "How many inventory copies are held by each store?",
+    "expected_tables": ["inventory"],
+    "oracle_sql": "SELECT store_id, COUNT(*) AS inventory_count FROM inventory GROUP BY store_id ORDER BY store_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q042",
+    "nl_question": "How many inventory copies does each store have per category?",
+    "expected_tables": ["inventory", "film_category", "category"],
+    "oracle_sql": "SELECT i.store_id, c.category_id, c.name, COUNT(*) AS inventory_count FROM inventory i JOIN film_category fc ON fc.film_id = i.film_id JOIN category c ON c.category_id = fc.category_id GROUP BY i.store_id, c.category_id, c.name ORDER BY i.store_id, c.category_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q043",
+    "nl_question": "What is the average rental rate by category?",
+    "expected_tables": ["film", "film_category", "category"],
+    "oracle_sql": "SELECT c.category_id, c.name, ROUND(AVG(f.rental_rate)::numeric, 2) AS avg_rental_rate FROM film f JOIN film_category fc ON fc.film_id = f.film_id JOIN category c ON c.category_id = fc.category_id GROUP BY c.category_id, c.name ORDER BY c.category_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q044",
+    "nl_question": "What is the average replacement cost by category?",
+    "expected_tables": ["film", "film_category", "category"],
+    "oracle_sql": "SELECT c.category_id, c.name, ROUND(AVG(f.replacement_cost)::numeric, 2) AS avg_replacement_cost FROM film f JOIN film_category fc ON fc.film_id = f.film_id JOIN category c ON c.category_id = fc.category_id GROUP BY c.category_id, c.name ORDER BY c.category_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q045",
+    "nl_question": "Which 10 films generated the most revenue?",
+    "expected_tables": ["payment", "rental", "inventory", "film"],
+    "oracle_sql": "SELECT f.film_id, f.title, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN rental r ON r.rental_id = p.rental_id JOIN inventory i ON i.inventory_id = r.inventory_id JOIN film f ON f.film_id = i.film_id GROUP BY f.film_id, f.title ORDER BY revenue DESC, f.film_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q046",
+    "nl_question": "How much revenue came from each MPAA rating?",
+    "expected_tables": ["payment", "rental", "inventory", "film"],
+    "oracle_sql": "SELECT f.rating, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN rental r ON r.rental_id = p.rental_id JOIN inventory i ON i.inventory_id = r.inventory_id JOIN film f ON f.film_id = i.film_id GROUP BY f.rating ORDER BY revenue DESC, f.rating;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q047",
+    "nl_question": "How many unique films have ever been rented?",
+    "expected_tables": ["rental", "inventory"],
+    "oracle_sql": "SELECT COUNT(DISTINCT i.film_id) AS unique_films_rented FROM rental r JOIN inventory i ON i.inventory_id = r.inventory_id;",
+    "result_assertion": "single_value_equal",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q048",
+    "nl_question": "Show payment counts by amount bucket (under 2, 2 to 4.99, 5 and above).",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT CASE WHEN amount < 2 THEN 'under_2' WHEN amount < 5 THEN '2_to_4_99' ELSE '5_and_above' END AS amount_bucket, COUNT(*) AS payment_count FROM payment GROUP BY 1 ORDER BY 1;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q049",
+    "nl_question": "Show monthly rentals and monthly revenue side by side.",
+    "expected_tables": ["rental", "payment"],
+    "oracle_sql": "WITH rentals AS (SELECT DATE_TRUNC('month', rental_date)::date AS month_start, COUNT(*) AS rental_count FROM rental GROUP BY 1), revenue AS (SELECT DATE_TRUNC('month', payment_date)::date AS month_start, ROUND(SUM(amount)::numeric, 2) AS revenue FROM payment GROUP BY 1) SELECT COALESCE(r.month_start, v.month_start) AS month_start, COALESCE(r.rental_count, 0) AS rental_count, COALESCE(v.revenue, 0)::numeric AS revenue FROM rentals r FULL OUTER JOIN revenue v ON v.month_start = r.month_start ORDER BY month_start;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q050",
+    "nl_question": "List the top 20 customers by average payment amount, but only if they have at least 20 payments.",
+    "expected_tables": ["payment", "customer"],
+    "oracle_sql": "SELECT c.customer_id, c.first_name, c.last_name, ROUND(AVG(p.amount)::numeric, 2) AS avg_payment_amount, COUNT(*) AS payment_count FROM payment p JOIN customer c ON c.customer_id = p.customer_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(*) >= 20 ORDER BY avg_payment_amount DESC, c.customer_id LIMIT 20;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q051",
+    "nl_question": "Which manager runs each store?",
+    "expected_tables": ["store", "staff"],
+    "oracle_sql": "SELECT s.store_id, st.staff_id AS manager_staff_id, st.first_name, st.last_name FROM store s JOIN staff st ON st.staff_id = s.manager_staff_id ORDER BY s.store_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q052",
+    "nl_question": "Show monthly revenue handled by each staff member.",
+    "expected_tables": ["payment", "staff"],
+    "oracle_sql": "SELECT st.staff_id, DATE_TRUNC('month', p.payment_date)::date AS month_start, ROUND(SUM(p.amount)::numeric, 2) AS revenue FROM payment p JOIN staff st ON st.staff_id = p.staff_id GROUP BY st.staff_id, month_start ORDER BY st.staff_id, month_start;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q053",
+    "nl_question": "How many films include each special feature?",
+    "expected_tables": ["film"],
+    "oracle_sql": "SELECT feature, COUNT(*) AS film_count FROM film f CROSS JOIN LATERAL UNNEST(f.special_features) AS feature GROUP BY feature ORDER BY film_count DESC, feature;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q054",
+    "nl_question": "Show yearly payment revenue.",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT EXTRACT(YEAR FROM payment_date)::int AS year_num, ROUND(SUM(amount)::numeric, 2) AS revenue FROM payment GROUP BY 1 ORDER BY 1;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q055",
+    "nl_question": "What are the first and last payment timestamps?",
+    "expected_tables": ["payment"],
+    "oracle_sql": "SELECT MIN(payment_date) AS first_payment_at, MAX(payment_date) AS last_payment_at FROM payment;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q056",
+    "nl_question": "What are the first and last rental timestamps?",
+    "expected_tables": ["rental"],
+    "oracle_sql": "SELECT MIN(rental_date) AS first_rental_at, MAX(rental_date) AS last_rental_at FROM rental;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "low"
+  },
+  {
+    "id": "q057",
+    "nl_question": "Which 10 actors are associated with the most rentals?",
+    "expected_tables": ["actor", "film_actor", "inventory", "rental"],
+    "oracle_sql": "SELECT a.actor_id, a.first_name, a.last_name, COUNT(*) AS rental_count FROM actor a JOIN film_actor fa ON fa.actor_id = a.actor_id JOIN inventory i ON i.film_id = fa.film_id JOIN rental r ON r.inventory_id = i.inventory_id GROUP BY a.actor_id, a.first_name, a.last_name ORDER BY rental_count DESC, a.actor_id LIMIT 10;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q058",
+    "nl_question": "Which categories have an average film length over 120 minutes?",
+    "expected_tables": ["film", "film_category", "category"],
+    "oracle_sql": "SELECT c.category_id, c.name, ROUND(AVG(f.length)::numeric, 2) AS avg_length FROM film f JOIN film_category fc ON fc.film_id = f.film_id JOIN category c ON c.category_id = fc.category_id GROUP BY c.category_id, c.name HAVING AVG(f.length) > 120 ORDER BY avg_length DESC, c.category_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  },
+  {
+    "id": "q059",
+    "nl_question": "Which customers rented in more than 10 distinct months?",
+    "expected_tables": ["rental", "customer"],
+    "oracle_sql": "SELECT c.customer_id, c.first_name, c.last_name, COUNT(DISTINCT DATE_TRUNC('month', r.rental_date)) AS active_months FROM rental r JOIN customer c ON c.customer_id = r.customer_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(DISTINCT DATE_TRUNC('month', r.rental_date)) > 10 ORDER BY active_months DESC, c.customer_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "high"
+  },
+  {
+    "id": "q060",
+    "nl_question": "Which countries have at least 5 cities represented?",
+    "expected_tables": ["country", "city"],
+    "oracle_sql": "SELECT co.country_id, co.country, COUNT(*) AS city_count FROM country co JOIN city ci ON ci.country_id = co.country_id GROUP BY co.country_id, co.country HAVING COUNT(*) >= 5 ORDER BY city_count DESC, co.country_id;",
+    "result_assertion": "row_set_equivalent",
+    "risk_level": "medium"
+  }
+]

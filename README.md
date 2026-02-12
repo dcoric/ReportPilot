@@ -67,6 +67,7 @@ Health:
 
 Data sources and schema:
 
+- `GET /v1/data-sources`
 - `POST /v1/data-sources`
 - `POST /v1/data-sources/{id}/introspect`
 - `GET /v1/schema-objects?data_source_id=...`
@@ -97,6 +98,12 @@ LLM provider config:
 - `POST /v1/llm/routing-rules`
 - `GET /v1/health/providers`
 
+Observability:
+
+- `GET /v1/observability/metrics?window_hours=24`
+- `GET /v1/observability/release-gates`
+- `POST /v1/observability/release-gates/report`
+
 RAG:
 
 - `POST /v1/rag/reindex?data_source_id=...`
@@ -116,6 +123,35 @@ curl -X POST http://localhost:8080/v1/llm/providers \
   -H 'Content-Type: application/json' \
   -d '{"provider":"openai","api_key_ref":"env:OPENAI_API_KEY","default_model":"gpt-4.1-mini","enabled":true}'
 ```
+
+## MVP Benchmark (Phase 5)
+
+Benchmark assets:
+
+- Dataset: `/Users/dcoric/Projects/ai-db/docs/evals/dvdrental-mvp-benchmark.json` (60 reporting prompts)
+- Runner: `/Users/dcoric/Projects/ai-db/app/src/benchmark/runMvpBenchmark.js`
+
+Recommended flow with the dvdrental fixture:
+
+```bash
+# 1) Start dvdrental test DB
+docker compose -f test-data/docker-compose.yml up -d
+
+# 2) Start app stack (metadata DB + API)
+docker compose up --build -d
+
+# 3) Run benchmark
+BENCHMARK_DATA_SOURCE_NAME=dvdrental \
+BENCHMARK_CONNECTION_REF=postgresql://postgres:postgres@host.docker.internal:5440/dvdrental \
+BENCHMARK_ORACLE_CONN=postgresql://postgres:postgres@localhost:5440/dvdrental \
+npm run benchmark:mvp
+```
+
+Report outputs:
+
+- JSON and Markdown reports in `/Users/dcoric/Projects/ai-db/docs/evals/reports`
+- Benchmark summary is also persisted to the app DB via `POST /v1/observability/release-gates/report`
+- Runner exits with code `2` when one or more MVP release gates fail.
 
 Progress tracker:
 

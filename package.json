@@ -5,7 +5,8 @@
   "description": "AI-DB NL to SQL backend (bootstrap runtime)",
   "scripts": {
     "start": "node app/src/start.js",
-    "migrate": "node app/src/migrate.js"
+    "migrate": "node app/src/migrate.js",
+    "benchmark:mvp": "node app/src/benchmark/runMvpBenchmark.js"
   },
   "engines": {
     "node": ">=20.0.0"

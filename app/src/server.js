@@ -8,10 +8,12 @@ const { evaluateExplainBudget } = require("./services/queryBudget");
 const { buildCitations, computeConfidence } = require("./services/queryResponse");
 const { reindexRagDocuments } = require("./services/ragService");
 const { retrieveRagContext } = require("./services/ragRetrieval");
+const { buildObservabilityMetrics, loadLatestBenchmarkReleaseGates } = require("./services/observabilityService");
 const { OpenAiAdapter } = require("./adapters/llm/openAiAdapter");
 const { GeminiAdapter } = require("./adapters/llm/geminiAdapter");
 const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
 const { resolveApiKey } = require("./adapters/llm/httpClient");
+const { createRequestId, logEvent } = require("./lib/observability");
 const { json, notFound, badRequest, internalError, readJsonBody } = require("./lib/http");
 
 const PORT = Number(process.env.PORT || 8080);
@@ -69,6 +71,18 @@ async function handleCreateDataSource(req, res) {
   );
 
   return json(res, 201, result.rows[0]);
+}
+
+async function handleListDataSources(_req, res) {
+  const result = await appDb.query(
+    `
+      SELECT id, name, db_type, connection_ref, status, created_at
+      FROM data_sources
+      ORDER BY created_at DESC
+    `
+  );
+
+  return json(res, 200, { items: result.rows });
 }
 
 async function runIntrospectionJob(jobId, dataSource) {
@@ -473,6 +487,7 @@ async function handleRunSession(req, res, sessionId) {
   let usedProvider = "unknown";
   let usedModel = requestedModel || "unknown";
   let generationAttempts = [];
+  let generationTokenUsage = null;
   let promptVersion = "v2-llm-router";
   try {
     const generation = await generateSqlWithRouting({
@@ -493,6 +508,7 @@ async function handleRunSession(req, res, sessionId) {
     usedProvider = generation.provider;
     usedModel = generation.model || usedModel;
     generationAttempts = generation.attempts || [];
+    generationTokenUsage = generation.tokenUsage || null;
     promptVersion = generation.promptVersion || promptVersion;
   } catch (err) {
     await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
@@ -525,7 +541,10 @@ async function handleRunSession(req, res, sessionId) {
       ok: validationErrors.length === 0,
       errors: validationErrors,
       references: safety.refs || [],
-      provider_attempts: generationAttempts
+      provider_attempts: generationAttempts,
+      trace: {
+        request_id: req.requestId || null
+      }
     };
 
     if (validationErrors.length > 0) {
@@ -538,10 +557,20 @@ async function handleRunSession(req, res, sessionId) {
             prompt_version,
             generated_sql,
             validation_result_json,
-            latency_ms
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            latency_ms,
+            token_usage_json
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
-        [sessionId, usedProvider, usedModel, promptVersion, generatedSql, validationJson, Date.now() - generationStartedAt]
+        [
+          sessionId,
+          usedProvider,
+          usedModel,
+          promptVersion,
+          generatedSql,
+          validationJson,
+          Date.now() - generationStartedAt,
+          generationTokenUsage
+        ]
       );
 
       await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
@@ -559,17 +588,27 @@ async function handleRunSession(req, res, sessionId) {
       if (!budget.ok) {
         await appDb.query(
           `
-            INSERT INTO query_attempts (
-              session_id,
-              llm_provider,
-              model,
-              prompt_version,
-              generated_sql,
-              validation_result_json,
-              latency_ms
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-          `,
-          [sessionId, usedProvider, usedModel, promptVersion, safeSql, validationJson, Date.now() - generationStartedAt]
+          INSERT INTO query_attempts (
+            session_id,
+            llm_provider,
+            model,
+            prompt_version,
+            generated_sql,
+            validation_result_json,
+            latency_ms,
+            token_usage_json
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `,
+          [
+            sessionId,
+            usedProvider,
+            usedModel,
+            promptVersion,
+            safeSql,
+            validationJson,
+            Date.now() - generationStartedAt,
+            generationTokenUsage
+          ]
         );
 
         await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
@@ -618,8 +657,9 @@ async function handleRunSession(req, res, sessionId) {
           prompt_version,
           generated_sql,
           validation_result_json,
-          latency_ms
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          latency_ms,
+          token_usage_json
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
       `,
       [
@@ -629,7 +669,8 @@ async function handleRunSession(req, res, sessionId) {
         promptVersion,
         safeSql,
         validationJson,
-        Date.now() - generationStartedAt
+        Date.now() - generationStartedAt,
+        generationTokenUsage
       ]
     );
 
@@ -871,6 +912,57 @@ async function handleProviderHealth(_req, res) {
   return json(res, 200, { items });
 }
 
+async function handleObservabilityMetrics(req, res, requestUrl) {
+  const windowHours = Number(requestUrl.searchParams.get("window_hours") || 24);
+  const metrics = await buildObservabilityMetrics({ windowHours });
+  return json(res, 200, metrics);
+}
+
+async function handleReleaseGates(_req, res) {
+  const payload = await loadLatestBenchmarkReleaseGates();
+  if (!payload.found) {
+    return json(res, 404, {
+      error: "not_found",
+      message: payload.message
+    });
+  }
+  return json(res, 200, payload);
+}
+
+async function handleCreateBenchmarkReport(req, res) {
+  const body = await readJsonBody(req);
+  const {
+    run_date: runDate,
+    dataset_file: datasetFile,
+    data_source_id: dataSourceId,
+    provider,
+    model,
+    summary
+  } = body;
+
+  if (!runDate || !datasetFile || !summary || typeof summary !== "object") {
+    return badRequest(res, "run_date, dataset_file and summary are required");
+  }
+
+  const inserted = await appDb.query(
+    `
+      INSERT INTO benchmark_reports (
+        run_date,
+        dataset_file,
+        data_source_id,
+        provider,
+        model,
+        summary_json,
+        report_json
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, created_at
+    `,
+    [runDate, datasetFile, dataSourceId || null, provider || null, model || null, summary, body]
+  );
+
+  return json(res, 201, inserted.rows[0]);
+}
+
 async function handleRagReindex(req, res, requestUrl) {
   const dataSourceId = requestUrl.searchParams.get("data_source_id");
   if (!dataSourceId) {
@@ -940,6 +1032,10 @@ async function routeRequest(req, res) {
     return handleCreateDataSource(req, res);
   }
 
+  if (req.method === "GET" && pathname === "/v1/data-sources") {
+    return handleListDataSources(req, res);
+  }
+
   const introspectMatch = pathname.match(/^\/v1\/data-sources\/([^/]+)\/introspect$/);
   if (req.method === "POST" && introspectMatch) {
     return handleIntrospect(req, res, introspectMatch[1]);
@@ -987,6 +1083,18 @@ async function routeRequest(req, res) {
     return handleProviderHealth(req, res);
   }
 
+  if (req.method === "GET" && pathname === "/v1/observability/metrics") {
+    return handleObservabilityMetrics(req, res, requestUrl);
+  }
+
+  if (req.method === "GET" && pathname === "/v1/observability/release-gates") {
+    return handleReleaseGates(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/v1/observability/release-gates/report") {
+    return handleCreateBenchmarkReport(req, res);
+  }
+
   if (req.method === "POST" && pathname === "/v1/rag/reindex") {
     return handleRagReindex(req, res, requestUrl);
   }
@@ -996,13 +1104,38 @@ async function routeRequest(req, res) {
 
 function startServer() {
   const server = http.createServer(async (req, res) => {
+    const startedAt = Date.now();
+    const requestId = createRequestId();
+    req.requestId = requestId;
+    res.setHeader("x-request-id", requestId);
+
+    res.on("finish", () => {
+      logEvent("http_request", {
+        request_id: requestId,
+        method: req.method,
+        path: req.url,
+        status_code: res.statusCode,
+        duration_ms: Date.now() - startedAt
+      });
+    });
+
     try {
       await routeRequest(req, res);
     } catch (err) {
       if (err.statusCode === 400) {
         return badRequest(res, err.message);
       }
-      console.error(`[server] Request failed: ${err.stack || err.message}`);
+      logEvent(
+        "http_error",
+        {
+          request_id: requestId,
+          method: req.method,
+          path: req.url,
+          error: err.message,
+          stack: err.stack || null
+        },
+        "error"
+      );
       return internalError(res);
     }
   });
@@ -1010,7 +1143,7 @@ function startServer() {
   return new Promise((resolve, reject) => {
     server.on("error", reject);
     server.listen(PORT, () => {
-      console.log(`[server] Listening on port ${PORT}`);
+      logEvent("server_started", { port: PORT });
       resolve(server);
     });
   });

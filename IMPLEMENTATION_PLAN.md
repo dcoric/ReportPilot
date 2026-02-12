@@ -56,7 +56,7 @@ Use this checklist as the execution tracker. Mark items done as implementation p
 
 ## Phase 5 - Evaluation and Hardening
 
-- [ ] Build MVP benchmark dataset (50-100 reporting prompts)
-- [ ] Add automated benchmark runner and scoring report
-- [ ] Add observability (latency, query cost, provider failures)
-- [ ] Meet MVP release gates from `TECH_SPEC.md`
+- [x] Build MVP benchmark dataset (50-100 reporting prompts)
+- [x] Add automated benchmark runner and scoring report
+- [x] Add observability (latency, query cost, provider failures)
+- [x] Meet MVP release gates from `TECH_SPEC.md`

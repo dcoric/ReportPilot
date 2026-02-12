@@ -9,6 +9,7 @@ tags:
   - name: Query
   - name: Admin
   - name: Providers
+  - name: Observability
 paths:
   /v1/query/sessions:
     post:
@@ -66,6 +67,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkResponse"
   /v1/data-sources:
+    get:
+      tags: [Admin]
+      summary: List registered data sources
+      responses:
+        "200":
+          description: Data source list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataSourceListResponse"
     post:
       tags: [Admin]
       summary: Register a data source
@@ -247,6 +258,72 @@ paths:
                           format: date-time
                       required: [provider, status, checked_at]
                 required: [items]
+  /v1/observability/metrics:
+    get:
+      tags: [Observability]
+      summary: Aggregated observability metrics over a time window
+      parameters:
+        - in: query
+          name: window_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+      responses:
+        "200":
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObservabilityMetricsResponse"
+  /v1/observability/release-gates:
+    get:
+      tags: [Observability]
+      summary: Latest benchmark release-gate outcome
+      responses:
+        "200":
+          description: Latest benchmark release gate status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseGatesResponse"
+        "404":
+          description: No benchmark report found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                required: [error, message]
+  /v1/observability/release-gates/report:
+    post:
+      tags: [Observability]
+      summary: Persist a benchmark report for release-gate tracking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BenchmarkReportUploadRequest"
+      responses:
+        "201":
+          description: Benchmark report stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                required: [id, created_at]
 components:
   parameters:
     SessionId:
@@ -359,6 +436,29 @@ components:
         status:
           type: string
       required: [id, name, db_type, status]
+    DataSourceListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              db_type:
+                type: string
+              connection_ref:
+                type: string
+              status:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+            required: [id, name, db_type, connection_ref, status, created_at]
+      required: [items]
     JobAcceptedResponse:
       type: object
       properties:
@@ -488,3 +588,27 @@ components:
         id:
           type: string
       required: [id]
+    ObservabilityMetricsResponse:
+      type: object
+      additionalProperties: true
+    ReleaseGatesResponse:
+      type: object
+      additionalProperties: true
+    BenchmarkReportUploadRequest:
+      type: object
+      properties:
+        run_date:
+          type: string
+          format: date-time
+        dataset_file:
+          type: string
+        data_source_id:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        summary:
+          type: object
+          additionalProperties: true
+      required: [run_date, dataset_file, summary]

@@ -56,9 +56,18 @@ class GeminiAdapter {
       throw new Error("Gemini returned an empty completion");
     }
 
+    const usage = response?.usageMetadata
+      ? {
+          prompt_tokens: Number(response.usageMetadata.promptTokenCount || 0),
+          completion_tokens: Number(response.usageMetadata.candidatesTokenCount || 0),
+          total_tokens: Number(response.usageMetadata.totalTokenCount || 0)
+        }
+      : null;
+
     return {
       text,
-      model
+      model,
+      usage
     };
   }
 

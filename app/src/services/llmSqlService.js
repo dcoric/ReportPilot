@@ -40,6 +40,7 @@ async function generateSqlWithRouting(input) {
   for (const provider of providerOrder) {
     const providerConfig = providerConfigs.get(provider) || null;
 
+    const startedAt = Date.now();
     try {
       const adapter = buildAdapter(provider, providerConfig, requestedModel);
       const output = await adapter.generate({
@@ -56,10 +57,13 @@ async function generateSqlWithRouting(input) {
         throw new Error("Model returned empty SQL");
       }
 
+      const usage = normalizeTokenUsage(output.usage);
       attempts.push({
         provider,
         model: output.model || requestedModel || providerConfig?.default_model || null,
-        status: "success"
+        status: "success",
+        latency_ms: Date.now() - startedAt,
+        usage
       });
 
       return {
@@ -67,6 +71,7 @@ async function generateSqlWithRouting(input) {
         provider,
         model: output.model || requestedModel || providerConfig?.default_model || null,
         attempts,
+        tokenUsage: usage,
         promptVersion: "v2-llm-router"
       };
     } catch (err) {
@@ -74,6 +79,7 @@ async function generateSqlWithRouting(input) {
         provider,
         model: requestedModel || providerConfig?.default_model || null,
         status: "failed",
+        latency_ms: Date.now() - startedAt,
         error: err.message
       });
     }
@@ -89,7 +95,9 @@ async function generateSqlWithRouting(input) {
   attempts.push({
     provider: "local-fallback",
     model: "rule-based-v0",
-    status: "success"
+    status: "success",
+    latency_ms: 0,
+    usage: null
   });
 
   return {
@@ -97,6 +105,7 @@ async function generateSqlWithRouting(input) {
     provider: "local-fallback",
     model: "rule-based-v0",
     attempts,
+    tokenUsage: null,
     promptVersion: "v2-llm-router"
   };
 }
@@ -274,6 +283,27 @@ function indent(text, spaces) {
     .split("\n")
     .map((line) => `${prefix}${line}`)
     .join("\n");
+}
+
+function normalizeTokenUsage(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const promptTokens = toFiniteNumber(raw.prompt_tokens ?? raw.promptTokenCount);
+  const completionTokens = toFiniteNumber(raw.completion_tokens ?? raw.candidatesTokenCount ?? raw.output_tokens);
+  const totalTokens = toFiniteNumber(raw.total_tokens ?? raw.totalTokenCount);
+
+  return {
+    prompt_tokens: promptTokens || 0,
+    completion_tokens: completionTokens || 0,
+    total_tokens: totalTokens || (promptTokens || 0) + (completionTokens || 0)
+  };
+}
+
+function toFiniteNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 module.exports = {
