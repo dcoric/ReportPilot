@@ -35,7 +35,7 @@ Build a production-ready internal UI that lets an analyst:
 
 ---
 
-## Ticket UI-001: App Shell and Routing
+## Ticket UI-001: App Shell and Routing [DONE]
 
 - Objective: Create base app layout, navigation, route skeletons.
 - Scope: phpMyAdmin-like shell with left tree sidebar + main workspace regions and route skeletons.
@@ -47,7 +47,7 @@ Build a production-ready internal UI that lets an analyst:
 - Sidebar is expandable/collapsible and supports nested tree nodes.
 - Main area supports stacked prompt -> SQL -> result layout sections.
 
-## Ticket UI-002: Typed API Client and Error Model
+## Ticket UI-002: Typed API Client and Error Model [DONE]
 
 - Objective: Build reusable API layer with typed request/response wrappers.
 - Scope: `GET/POST` wrapper, timeout, error normalization, retry policy (read-only requests only).
@@ -57,7 +57,7 @@ Build a production-ready internal UI that lets an analyst:
 - API errors are displayed as user-friendly messages.
 - Request IDs from response headers are logged for debugging.
 
-## Ticket UI-003: Data Source Management
+## Ticket UI-003: Data Source Management [DONE]
 
 - Objective: Let user create and list data sources.
 - Scope: List table + create form modal.
@@ -69,7 +69,7 @@ Build a production-ready internal UI that lets an analyst:
 - New data source appears in list without full page refresh.
 - Validation errors are shown inline.
 
-## Ticket UI-004: Introspection Flow and Status UX
+## Ticket UI-004: Introspection Flow and Status UX [DONE]
 
 - Objective: Trigger introspection and provide status feedback.
 - Scope: “Introspect” action on selected data source, progress indicator, completion confirmation.
@@ -82,7 +82,7 @@ Build a production-ready internal UI that lets an analyst:
 - Completion is inferred by polling schema objects until non-empty.
 - Failure state is shown when timeout threshold is reached.
 
-## Ticket UI-005: Schema Explorer
+## Ticket UI-005: Schema Explorer [DONE]
 
 - Objective: Display introspected schema objects for selected data source.
 - Scope: Search/filter/sort schema object list.
@@ -93,7 +93,7 @@ Build a production-ready internal UI that lets an analyst:
 - Empty state explains that introspection is required.
 - Object type and description are visible.
 
-## Ticket UI-006: Semantic Entity Editor
+## Ticket UI-006: Semantic Entity Editor [DONE]
 
 - Objective: Create/update semantic entities used by RAG.
 - Scope: Form for table/column/metric/dimension/rule entities.
@@ -104,7 +104,7 @@ Build a production-ready internal UI that lets an analyst:
 - Edit mode supported via `id` in payload.
 - Success toast confirms that reindex is auto-triggered asynchronously.
 
-## Ticket UI-007: Metric Definition Editor
+## Ticket UI-007: Metric Definition Editor [DONE]
 
 - Objective: Create/update metric SQL definitions.
 - Scope: Form with semantic entity ID, SQL expression, grain, optional filters JSON.
@@ -115,7 +115,7 @@ Build a production-ready internal UI that lets an analyst:
 - JSON field validation for `filters_json`.
 - Save success and error states handled.
 
-## Ticket UI-008: Join Policy Editor
+## Ticket UI-008: Join Policy Editor [DONE]
 
 - Objective: Create/update approved join policies.
 - Scope: Form for left/right refs, join type, on-clause, approved flag, notes.
@@ -126,7 +126,7 @@ Build a production-ready internal UI that lets an analyst:
 - Validation ensures all required fields are supplied.
 - Save result shown with returned policy ID.
 
-## Ticket UI-009: RAG Reindex Console Action
+## Ticket UI-009: RAG Reindex Console Action [DONE]
 
 - Objective: Give admins explicit reindex control.
 - Scope: Button/action on semantic/schema screens.
@@ -137,7 +137,7 @@ Build a production-ready internal UI that lets an analyst:
 - Result shows documents indexed and embedding model.
 - Error state includes returned API message.
 
-## Ticket UI-010: Query Workspace (NL Question -> Run)
+## Ticket UI-010: Query Workspace (NL Question -> Run) [DONE]
 
 - Objective: Core analyst experience for creating/running query sessions.
 - Scope: Question input, SQL editor, run controls (`provider/model/max_rows/timeout_ms`), session creation and execution.
@@ -183,7 +183,7 @@ Build a production-ready internal UI that lets an analyst:
 - Download mode returns file for selected format.
 - Email mode sends export to provided email(s) with validation and success/error feedback.
 
-## Ticket UI-011: Query Citations and RAG Debug Panel
+## Ticket UI-011: Query Citations and RAG Debug Panel [DONE]
 
 - Objective: Expose grounding details for trust and debugging.
 - Scope: Collapsible panel for schema/semantic/metric/join citations and `rag_documents`.
@@ -194,7 +194,7 @@ Build a production-ready internal UI that lets an analyst:
 - RAG docs show score and rerank score.
 - Empty citation states are shown clearly.
 
-## Ticket UI-012: Feedback Capture UX
+## Ticket UI-012: Feedback Capture UX [DONE]
 
 - Objective: Collect rating and corrected SQL from users.
 - Scope: Feedback form attached to latest query result.
@@ -205,7 +205,7 @@ Build a production-ready internal UI that lets an analyst:
 - Optional corrected SQL and comment supported.
 - UI shows whether corrected SQL was saved as an example.
 
-## Ticket UI-013: Provider Config and Routing UI
+## Ticket UI-013: Provider Config and Routing UI [DONE]
 
 - Objective: Manage LLM providers and routing rules per data source.
 - Scope: Provider settings panel + routing rule form.
@@ -218,7 +218,7 @@ Build a production-ready internal UI that lets an analyst:
 - User can configure primary/fallback providers for a data source.
 - Provider health shown with status badges.
 
-## Ticket UI-014: Observability Dashboard
+## Ticket UI-014: Observability Dashboard [DONE]
 
 - Objective: Provide operational visibility for query quality and reliability.
 - Scope: Metrics cards + charts + provider failure table.
@@ -229,7 +229,7 @@ Build a production-ready internal UI that lets an analyst:
 - Generation and execution latency stats are visible.
 - Token usage, query cost metrics, provider failures are visible.
 
-## Ticket UI-015: Release Gates View
+## Ticket UI-015: Release Gates View [DONE]
 
 - Objective: Show MVP release readiness from benchmark reports.
 - Scope: Dedicated page for latest release gate status.
