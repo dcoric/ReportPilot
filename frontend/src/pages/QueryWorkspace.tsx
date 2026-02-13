@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { client } from '../lib/api/client';
 import { DebugPanel } from '../components/Query/DebugPanel';
 import { FeedbackForm } from '../components/Query/FeedbackForm';
+import { ExportBar } from '../components/Query/ExportBar';
 import type { components } from '../lib/api/types';
 
 // Types
@@ -292,6 +293,14 @@ export const QueryWorkspace: React.FC = () => {
                             </div>
                         )}
                     </div>
+
+                    {/* Export Bar */}
+                    {queryResult && sessionId && (
+                        <ExportBar
+                            sessionId={sessionId}
+                            hasResults={queryResult.rows.length > 0}
+                        />
+                    )}
                 </div>
 
 

@@ -11,6 +11,7 @@ const { buildCitations, computeConfidence } = require("./services/queryResponse"
 const { reindexRagDocuments } = require("./services/ragService");
 const { retrieveRagContext } = require("./services/ragRetrieval");
 const { buildObservabilityMetrics, loadLatestBenchmarkReleaseGates } = require("./services/observabilityService");
+const { exportQueryResult, SUPPORTED_FORMATS } = require("./services/exportService");
 const { OpenAiAdapter } = require("./adapters/llm/openAiAdapter");
 const { GeminiAdapter } = require("./adapters/llm/geminiAdapter");
 const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
@@ -831,6 +832,33 @@ async function handleFeedback(req, res, sessionId) {
   return json(res, 200, { ok: true, example_saved: exampleSaved, example_reason: exampleReason });
 }
 
+
+async function handleExportSession(req, res, sessionId) {
+  const body = await readJsonBody(req).catch(() => ({})); // Body optional
+  const requestUrl = new URL(req.url, "http://localhost");
+  const format = body.format || requestUrl.searchParams.get("format") || "json";
+
+  if (!SUPPORTED_FORMATS.has(format)) {
+    return badRequest(res, `Unsupported format: ${format}`);
+  }
+
+  try {
+    const { buffer, contentType, filename } = await exportQueryResult(sessionId, format);
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": buffer.length
+    });
+    res.end(buffer);
+  } catch (err) {
+    if (err.message === "Session not found") {
+      return json(res, 404, { error: "not_found", message: "Session not found" });
+    }
+    console.error("[export] failed:", err);
+    return internalError(res);
+  }
+}
+
 async function handleProviderUpsert(req, res) {
   const body = await readJsonBody(req);
   const { provider, api_key_ref: apiKeyRef, default_model: defaultModel, enabled } = body;
@@ -1122,6 +1150,11 @@ async function routeRequest(req, res) {
   const feedbackMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/feedback$/);
   if (req.method === "POST" && feedbackMatch) {
     return handleFeedback(req, res, feedbackMatch[1]);
+  }
+
+  const exportMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/export$/);
+  if (req.method === "POST" && exportMatch) {
+    return handleExportSession(req, res, exportMatch[1]);
   }
 
   if (req.method === "POST" && pathname === "/v1/llm/providers") {
