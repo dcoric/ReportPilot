@@ -14,18 +14,14 @@ services:
       - ./dvdrental.tar:/docker-entrypoint-initdb.d/dvdrental.tar:ro
       - ./init/01-restore-dvdrental.sh:/docker-entrypoint-initdb.d/01-restore-dvdrental.sh:ro
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-dvdrental}",
-        ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-dvdrental}" ]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 10s
 
   pgadmin:
-    image: dpage/pgadmin4:9
+    image: dpage/pgadmin4:latest
     container_name: ai-db-dvdrental-pgadmin
     restart: unless-stopped
     depends_on:
