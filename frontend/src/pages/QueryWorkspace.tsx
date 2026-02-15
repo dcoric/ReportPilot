@@ -10,6 +10,19 @@ import type { components } from '../lib/api/types';
 type DataSource = components['schemas']['DataSourceListResponse']['items'][number];
 type RunResponse = components['schemas']['RunSessionResponse'];
 
+interface LlmProvider {
+    id: string;
+    provider: string;
+    default_model: string;
+    enabled: boolean;
+}
+
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+    openai: 'OpenAI',
+    gemini: 'Google Gemini',
+    deepseek: 'DeepSeek',
+};
+
 type TabType = 'results' | 'metadata' | 'citations' | 'query-plan';
 
 export const QueryWorkspace: React.FC = () => {
@@ -27,9 +40,10 @@ export const QueryWorkspace: React.FC = () => {
     const [isRunning, setIsRunning] = useState(false);
     const [activeTab, setActiveTab] = useState<TabType>('results');
 
-    // Query controls
-    const [provider, setProvider] = useState('OpenAI');
-    const [model, setModel] = useState('gpt-4');
+    // Query controls - providers loaded dynamically
+    const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
+    const [provider, setProvider] = useState('');
+    const [model, setModel] = useState('');
     const [maxRows, setMaxRows] = useState(1000);
     const [timeout, setTimeout] = useState(60);
     const [isReadOnly, setIsReadOnly] = useState(false);
@@ -47,7 +61,21 @@ export const QueryWorkspace: React.FC = () => {
                 if (data.items.length > 0) setSelectedDataSourceId(data.items[0].id);
             }
         };
+
+        const fetchProviders = async () => {
+            const { data } = await client.GET('/v1/llm/providers');
+            if (data?.items) {
+                const enabled = data.items.filter(p => p.enabled);
+                setLlmProviders(enabled);
+                if (enabled.length > 0) {
+                    setProvider(enabled[0].provider);
+                    setModel(enabled[0].default_model);
+                }
+            }
+        };
+
         fetchDataSources();
+        fetchProviders();
     }, []);
 
     // --- Actions ---
@@ -228,25 +256,34 @@ export const QueryWorkspace: React.FC = () => {
                                     <label className="text-xs font-medium text-gray-600">Provider:</label>
                                     <select
                                         value={provider}
-                                        onChange={(e) => setProvider(e.target.value)}
+                                        onChange={(e) => {
+                                            const selected = e.target.value;
+                                            setProvider(selected);
+                                            const p = llmProviders.find(lp => lp.provider === selected);
+                                            if (p) setModel(p.default_model);
+                                        }}
                                         className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     >
-                                        <option>OpenAI</option>
-                                        <option>Anthropic</option>
+                                        {llmProviders.length === 0 && (
+                                            <option value="">No providers configured</option>
+                                        )}
+                                        {llmProviders.map(p => (
+                                            <option key={p.provider} value={p.provider}>
+                                                {PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
 
                                 <div className="flex items-center gap-2">
                                     <label className="text-xs font-medium text-gray-600">Model:</label>
-                                    <select
+                                    <input
+                                        type="text"
                                         value={model}
                                         onChange={(e) => setModel(e.target.value)}
-                                        className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    >
-                                        <option>gpt-4</option>
-                                        <option>gpt-3.5-turbo</option>
-                                        <option>claude-3-opus</option>
-                                    </select>
+                                        className="w-36 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="e.g. gpt-4o"
+                                    />
                                 </div>
 
                                 <div className="flex items-center gap-2">

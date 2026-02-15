@@ -220,6 +220,30 @@ Build a production-ready internal UI that lets an analyst:
 - User can configure primary/fallback providers for a data source.
 - Provider health shown with status badges.
 
+## Ticket UI-019: LLM Provider Management Page [DONE]
+
+- Objective: Provide a dedicated CRUD interface for LLM providers, matching the Data Sources management pattern.
+- Scope:
+- New "LLM Providers" page with table listing all configured providers.
+- "Add Provider" dialog modal (same UX pattern as Add Data Source).
+- Enable/disable toggle per provider from the list.
+- Provider health status badges from `/v1/health/providers`.
+- Query Workspace provider/model dropdowns dynamically populated from configured providers.
+- Routing rules page updated to use only enabled providers in dropdowns.
+- Backend `GET /v1/llm/providers` endpoint added.
+- APIs:
+- `GET /v1/llm/providers` (new)
+- `POST /v1/llm/providers`
+- `GET /v1/health/providers`
+- Acceptance Criteria:
+- User can add a new LLM provider via dialog (provider type, API key ref, default model, enabled flag).
+- Provider list shows name, default model, enabled status, health badge, and created date.
+- User can enable/disable providers directly from the list.
+- Query Workspace provider dropdown shows only enabled providers from the database.
+- Selecting a provider in Query Workspace auto-fills its default model.
+- LLM Providers link appears in the sidebar navigation between Data Sources and Schema Explorer.
+- Settings page simplified to show only routing rules, using enabled providers from API.
+
 ## Ticket UI-014: Observability Dashboard [DONE]
 
 - Objective: Provide operational visibility for query quality and reliability.

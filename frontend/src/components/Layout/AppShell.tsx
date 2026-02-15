@@ -7,13 +7,15 @@ import {
     Activity,
     ShieldCheck,
     Settings,
-    Layers
+    Layers,
+    Server
 } from 'lucide-react';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
     { path: '/', label: 'Dasbhoard', icon: LayoutDashboard },
     { path: '/data-sources', label: 'Data Sources', icon: Database },
+    { path: '/llm-providers', label: 'LLM Providers', icon: Server },
     { path: '/schema', label: 'Schema Explorer', icon: Layers },
     { path: '/query', label: 'Query Workspace', icon: Search },
     { path: '/observability', label: 'Observability', icon: Activity },

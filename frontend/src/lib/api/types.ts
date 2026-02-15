@@ -431,7 +431,38 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List all configured LLM providers */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of providers */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                provider: string;
+                                default_model: string;
+                                enabled: boolean;
+                                /** Format: date-time */
+                                created_at: string;
+                                /** Format: date-time */
+                                updated_at: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
         put?: never;
         /** Register or update an LLM provider config */
         post: {

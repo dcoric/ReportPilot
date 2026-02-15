@@ -859,6 +859,15 @@ async function handleExportSession(req, res, sessionId) {
   }
 }
 
+async function handleProviderList(_req, res) {
+  const result = await appDb.query(
+    `SELECT id, provider, default_model, enabled, created_at, updated_at
+     FROM llm_providers
+     ORDER BY provider`
+  );
+  return json(res, 200, { items: result.rows });
+}
+
 async function handleProviderUpsert(req, res) {
   const body = await readJsonBody(req);
   const { provider, api_key_ref: apiKeyRef, default_model: defaultModel, enabled } = body;
@@ -1155,6 +1164,10 @@ async function routeRequest(req, res) {
   const exportMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/export$/);
   if (req.method === "POST" && exportMatch) {
     return handleExportSession(req, res, exportMatch[1]);
+  }
+
+  if (req.method === "GET" && pathname === "/v1/llm/providers") {
+    return handleProviderList(req, res);
   }
 
   if (req.method === "POST" && pathname === "/v1/llm/providers") {
