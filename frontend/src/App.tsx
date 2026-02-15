@@ -9,6 +9,7 @@ import { Observability } from './pages/Observability';
 import { ReleaseGates } from './pages/ReleaseGates';
 import { NotFound } from './pages/NotFound';
 import { Settings } from './pages/Settings';
+import { LLMProviders } from './pages/LLMProviders';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route path="/schema" element={<SchemaExplorer />} />
           <Route path="/observability" element={<Observability />} />
           <Route path="/release-gates" element={<ReleaseGates />} />
+          <Route path="/llm-providers" element={<LLMProviders />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
 
