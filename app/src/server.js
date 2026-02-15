@@ -1196,9 +1196,12 @@ function startServer() {
     res.setHeader("x-request-id", requestId);
 
     // CORS
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin || "*";
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-id");
+    res.setHeader("Vary", "Origin");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
