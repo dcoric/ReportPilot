@@ -18,7 +18,7 @@ const PROVIDER_OPTIONS = [
 export const AddProviderDialog: React.FC<AddProviderDialogProps> = ({ isOpen, onClose, onSuccess }) => {
     const [provider, setProvider] = useState<string>(PROVIDER_OPTIONS[0].id);
     const [apiKeyRef, setApiKeyRef] = useState('');
-    const [defaultModel, setDefaultModel] = useState(PROVIDER_OPTIONS[0].defaultModel);
+    const [defaultModel, setDefaultModel] = useState<string>(PROVIDER_OPTIONS[0].defaultModel);
     const [enabled, setEnabled] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
