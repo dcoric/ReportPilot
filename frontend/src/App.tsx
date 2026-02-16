@@ -17,7 +17,7 @@ function App() {
       <Toaster position="top-right" richColors />
       <Routes>
         <Route element={<AppShell />}>
-          <Route path="/" element={<QueryWorkspace />} />
+          <Route path="/" element={<Dashboard />} />
           <Route path="/query" element={<QueryWorkspace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/data-sources" element={<DataSources />} />
