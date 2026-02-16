@@ -8,6 +8,7 @@ servers:
     description: Local runtime (same origin)
 tags:
   - name: Query
+  - name: Export
   - name: Admin
   - name: Providers
   - name: Observability
@@ -67,6 +68,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OkResponse"
+  /v1/query/sessions/{sessionId}/export/deliver:
+    post:
+      tags: [Export]
+      summary: Deliver an export via download or email
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportDeliverRequest"
+      responses:
+        "200":
+          description: Download file (when delivery_mode is download)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            x-export-id:
+              schema:
+                type: string
+              description: Export delivery tracking ID
+        "202":
+          description: Email delivery accepted (async)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportDeliverAccepted"
+  /v1/exports/{exportId}/status:
+    get:
+      tags: [Export]
+      summary: Check export delivery status
+      parameters:
+        - in: path
+          name: exportId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delivery status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportDeliveryStatus"
+        "404":
+          description: Export delivery not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                required: [error, message]
   /v1/data-sources:
     get:
       tags: [Admin]
@@ -613,3 +674,71 @@ components:
           type: object
           additionalProperties: true
       required: [run_date, dataset_file, summary]
+    ExportDeliverRequest:
+      type: object
+      properties:
+        delivery_mode:
+          type: string
+          enum: [download, email]
+        format:
+          type: string
+          enum: [json, csv, xlsx]
+          default: json
+        recipients:
+          type: array
+          items:
+            type: string
+            format: email
+          description: Required when delivery_mode is email
+      required: [delivery_mode]
+    ExportDeliverAccepted:
+      type: object
+      properties:
+        export_id:
+          type: string
+        status:
+          type: string
+          enum: [processing]
+        delivery_mode:
+          type: string
+          enum: [email]
+      required: [export_id, status, delivery_mode]
+    ExportDeliveryStatus:
+      type: object
+      properties:
+        id:
+          type: string
+        session_id:
+          type: string
+        delivery_mode:
+          type: string
+          enum: [download, email]
+        format:
+          type: string
+          enum: [json, csv, xlsx]
+        recipients:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        error_message:
+          type: string
+          nullable: true
+        file_name:
+          type: string
+          nullable: true
+        file_size_bytes:
+          type: integer
+          nullable: true
+        requested_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, session_id, delivery_mode, format, status, requested_by, created_at]
