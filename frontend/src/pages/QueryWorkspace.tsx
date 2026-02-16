@@ -129,11 +129,11 @@ export const QueryWorkspace: React.FC = () => {
     const promptHistoryRef = useRef<HTMLDivElement | null>(null);
     const promptHistoryButtonRef = useRef<HTMLButtonElement | null>(null);
     const promptHistoryPanelRef = useRef<HTMLDivElement | null>(null);
-    const [promptHistoryPosition, setPromptHistoryPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>({
+    const [promptHistoryPosition, setPromptHistoryPosition] = useState<{ top: number; left: number; width: number; panelMaxHeight: number }>({
         top: 0,
         left: 0,
         width: 620,
-        maxHeight: 420,
+        panelMaxHeight: 420,
     });
 
     // --- Effects ---
@@ -233,10 +233,13 @@ export const QueryWorkspace: React.FC = () => {
             const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
             const spaceAbove = rect.top - viewportPadding;
             const showBelow = spaceBelow >= 260 || spaceBelow >= spaceAbove;
-            const maxHeight = Math.max(220, Math.min(420, showBelow ? spaceBelow - 8 : spaceAbove - 8));
-            const top = showBelow ? rect.bottom + 8 : Math.max(viewportPadding, rect.top - maxHeight - 8);
+            const availableHeight = Math.max(120, Math.floor((showBelow ? spaceBelow : spaceAbove) - 8));
+            const panelMaxHeight = Math.min(520, availableHeight);
+            const top = showBelow
+                ? rect.bottom + 8
+                : Math.max(viewportPadding, rect.top - panelMaxHeight - 8);
 
-            setPromptHistoryPosition({ top, left, width: desiredWidth, maxHeight });
+            setPromptHistoryPosition({ top, left, width: desiredWidth, panelMaxHeight });
         };
 
         updatePosition();
@@ -552,11 +555,12 @@ export const QueryWorkspace: React.FC = () => {
                                         {isPromptHistoryOpen && typeof document !== 'undefined' && createPortal(
                                             <div
                                                 ref={promptHistoryPanelRef}
-                                                className="fixed rounded-xl border border-gray-200 bg-white shadow-2xl z-[200] overflow-hidden"
+                                                className="fixed rounded-xl border border-gray-200 bg-white shadow-2xl z-[200] overflow-hidden flex flex-col"
                                                 style={{
                                                     top: promptHistoryPosition.top,
                                                     left: promptHistoryPosition.left,
                                                     width: promptHistoryPosition.width,
+                                                    maxHeight: promptHistoryPosition.panelMaxHeight,
                                                 }}
                                             >
                                                 <div className="px-5 pt-4 pb-3 border-b border-gray-100 bg-gray-50/60">
@@ -569,7 +573,7 @@ export const QueryWorkspace: React.FC = () => {
                                                         className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                     />
                                                 </div>
-                                                <div className="overflow-auto p-2" style={{ maxHeight: promptHistoryPosition.maxHeight }}>
+                                                <div className="overflow-auto p-2 min-h-0 flex-1">
                                                     {isPromptHistoryLoading && (
                                                         <div className="px-4 py-10 text-sm text-gray-500 flex items-center justify-center gap-2">
                                                             <Loader2 size={14} className="animate-spin" />
