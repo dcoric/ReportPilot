@@ -466,12 +466,24 @@ async function handlePromptHistory(req, res, requestUrl) {
 
   const result = await appDb.query(
     `
-      SELECT id, question, data_source_id, created_at
-      FROM query_sessions
+      SELECT
+        qs.id,
+        qs.question,
+        qs.data_source_id,
+        qs.created_at,
+        qa.generated_sql AS latest_sql
+      FROM query_sessions qs
+      LEFT JOIN LATERAL (
+        SELECT generated_sql
+        FROM query_attempts
+        WHERE session_id = qs.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) qa ON TRUE
       WHERE user_id = $1
-        AND ($2::uuid IS NULL OR data_source_id = $2::uuid)
+        AND ($2::uuid IS NULL OR qs.data_source_id = $2::uuid)
         AND ($3::text = '' OR question ILIKE '%' || $3 || '%')
-      ORDER BY created_at DESC
+      ORDER BY qs.created_at DESC
       LIMIT $4
     `,
     [userId, dataSourceId, search, limit]
@@ -484,6 +496,7 @@ async function handleRunSession(req, res, sessionId) {
   const body = await readJsonBody(req);
   const requestedProvider = body.llm_provider || null;
   const requestedModel = body.model || null;
+  const sqlOverride = typeof body.sql_override === "string" && body.sql_override.trim() ? body.sql_override.trim() : null;
   const maxRows = clamp(Number(body.max_rows || 1000), 1, 100000);
   const timeoutMs = clamp(Number(body.timeout_ms || 20000), 1000, 120000);
 
@@ -584,30 +597,37 @@ async function handleRunSession(req, res, sessionId) {
   let generationAttempts = [];
   let generationTokenUsage = null;
   let promptVersion = "v2-llm-router";
-  try {
-    const generation = await generateSqlWithRouting({
-      dataSourceId: session.data_source_id,
-      question: session.question,
-      maxRows,
-      requestedProvider,
-      requestedModel,
-      schemaObjects: schemaObjectsResult.rows,
-      columns: columnsResult.rows,
-      semanticEntities: semanticEntitiesResult.rows,
-      metricDefinitions: metricDefinitionsResult.rows,
-      joinPolicies: joinPoliciesResult.rows,
-      ragDocuments
-    });
+  if (sqlOverride) {
+    generatedSql = sqlOverride;
+    usedProvider = "cached_history";
+    usedModel = "n/a";
+    promptVersion = "v2-cached-sql";
+  } else {
+    try {
+      const generation = await generateSqlWithRouting({
+        dataSourceId: session.data_source_id,
+        question: session.question,
+        maxRows,
+        requestedProvider,
+        requestedModel,
+        schemaObjects: schemaObjectsResult.rows,
+        columns: columnsResult.rows,
+        semanticEntities: semanticEntitiesResult.rows,
+        metricDefinitions: metricDefinitionsResult.rows,
+        joinPolicies: joinPoliciesResult.rows,
+        ragDocuments
+      });
 
-    generatedSql = generation.sql;
-    usedProvider = generation.provider;
-    usedModel = generation.model || usedModel;
-    generationAttempts = generation.attempts || [];
-    generationTokenUsage = generation.tokenUsage || null;
-    promptVersion = generation.promptVersion || promptVersion;
-  } catch (err) {
-    await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
-    return json(res, 502, { error: "llm_generation_failed", message: err.message });
+      generatedSql = generation.sql;
+      usedProvider = generation.provider;
+      usedModel = generation.model || usedModel;
+      generationAttempts = generation.attempts || [];
+      generationTokenUsage = generation.tokenUsage || null;
+      promptVersion = generation.promptVersion || promptVersion;
+    } catch (err) {
+      await appDb.query("UPDATE query_sessions SET status = 'failed' WHERE id = $1", [sessionId]);
+      return json(res, 502, { error: "llm_generation_failed", message: err.message });
+    }
   }
 
   const adapter = new PostgresAdapter(session.connection_ref);

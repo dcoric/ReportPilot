@@ -208,14 +208,26 @@ export const QueryWorkspace: React.FC = () => {
     }, [isPromptHistoryOpen]);
 
     useEffect(() => {
-        if (!isPromptHistoryOpen) return;
+        if (!selectedDataSourceId) {
+            setPromptHistory([]);
+            return;
+        }
 
-        void fetchPromptHistory();
+        void fetchPromptHistory(false);
+    }, [selectedDataSourceId]);
+
+    useEffect(() => {
+        if (!isPromptHistoryOpen) return;
+        if (!selectedDataSourceId) return;
+
+        void fetchPromptHistory(true);
     }, [isPromptHistoryOpen, selectedDataSourceId]);
 
     // --- Actions ---
-    const fetchPromptHistory = async () => {
-        setIsPromptHistoryLoading(true);
+    const fetchPromptHistory = async (showLoading = true) => {
+        if (showLoading) {
+            setIsPromptHistoryLoading(true);
+        }
         try {
             const { data } = await client.GET('/v1/query/prompts/history', {
                 params: {
@@ -231,12 +243,16 @@ export const QueryWorkspace: React.FC = () => {
             console.error(error);
             setPromptHistory([]);
         } finally {
-            setIsPromptHistoryLoading(false);
+            if (showLoading) {
+                setIsPromptHistoryLoading(false);
+            }
         }
     };
 
     const handleAsk = async () => {
         if (!selectedDataSourceId || !question.trim()) return;
+        const normalizedQuestion = question.trim();
+        const cachedSql = promptHistory.find((item) => item.question.trim() === normalizedQuestion && item.latest_sql)?.latest_sql || null;
 
         setIsGenerating(true);
         setGeneratedSql('');
@@ -255,8 +271,11 @@ export const QueryWorkspace: React.FC = () => {
                 console.error(error);
             } else if (data) {
                 setSessionId(data.session_id);
-                void fetchPromptHistory();
-                await generateSql(data.session_id);
+                await generateSql(data.session_id, cachedSql || undefined);
+                void fetchPromptHistory(false);
+                if (cachedSql) {
+                    toast.success('Used cached SQL from prompt history');
+                }
             }
         } catch (err) {
             console.error(err);
@@ -266,10 +285,10 @@ export const QueryWorkspace: React.FC = () => {
         }
     };
 
-    const generateSql = async (sessId: string) => {
+    const generateSql = async (sessId: string, sqlOverride?: string) => {
         const { data } = await client.POST('/v1/query/sessions/{sessionId}/run', {
             params: { path: { sessionId: sessId } },
-            body: {}
+            body: sqlOverride ? { sql_override: sqlOverride } : {}
         });
 
         if (data) {
@@ -516,14 +535,21 @@ export const QueryWorkspace: React.FC = () => {
                                                             type="button"
                                                             onClick={() => {
                                                                 setQuestion(item.question);
+                                                                if (item.latest_sql) {
+                                                                    setGeneratedSql(item.latest_sql);
+                                                                    setOriginalSql(item.latest_sql);
+                                                                }
                                                                 setIsPromptHistoryOpen(false);
                                                             }}
                                                             className="w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
                                                             title={item.question}
                                                         >
                                                             <div className="text-xs font-medium text-gray-700 line-clamp-2 break-words">{item.question}</div>
-                                                            <div className="mt-1 text-[11px] text-gray-500">
-                                                                {new Date(item.created_at).toLocaleString()}
+                                                            <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-gray-500">
+                                                                <span>{new Date(item.created_at).toLocaleString()}</span>
+                                                                <span className={`font-medium ${item.latest_sql ? 'text-emerald-700' : 'text-gray-400'}`}>
+                                                                    {item.latest_sql ? 'SQL cached' : 'No SQL'}
+                                                                </span>
                                                             </div>
                                                         </button>
                                                     ))}

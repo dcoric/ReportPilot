@@ -532,6 +532,9 @@ components:
         created_at:
           type: string
           format: date-time
+        latest_sql:
+          type: string
+          nullable: true
       required: [id, question, data_source_id, created_at]
     PromptHistoryResponse:
       type: object
@@ -566,6 +569,9 @@ components:
           enum: [openai, gemini, deepseek]
         model:
           type: string
+        sql_override:
+          type: string
+          description: Optional SQL to execute directly, skipping LLM generation.
         max_rows:
           type: integer
           minimum: 1

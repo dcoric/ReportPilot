@@ -1003,6 +1003,7 @@ export interface components {
             data_source_id: string;
             /** Format: date-time */
             created_at: string;
+            latest_sql?: string | null;
         };
         PromptHistoryResponse: {
             items: components["schemas"]["PromptHistoryItem"][];
@@ -1020,6 +1021,8 @@ export interface components {
             /** @enum {string} */
             llm_provider?: "openai" | "gemini" | "deepseek";
             model?: string;
+            /** @description Optional SQL to execute directly, skipping LLM generation. */
+            sql_override?: string;
             max_rows?: number;
             timeout_ms?: number;
         };
