@@ -449,6 +449,29 @@ async function handleCreateSession(req, res) {
   return json(res, 201, { session_id: sessionResult.rows[0].id, status: "created" });
 }
 
+async function handlePromptHistory(req, res, requestUrl) {
+  const userId = req.headers["x-user-id"] || "anonymous";
+  const dataSourceId = requestUrl.searchParams.get("data_source_id");
+  const search = (requestUrl.searchParams.get("q") || "").trim();
+  const requestedLimit = Number(requestUrl.searchParams.get("limit") || 20);
+  const limit = clamp(Number.isFinite(requestedLimit) ? requestedLimit : 20, 1, 200);
+
+  const result = await appDb.query(
+    `
+      SELECT id, question, data_source_id, created_at
+      FROM query_sessions
+      WHERE user_id = $1
+        AND ($2::text IS NULL OR data_source_id = $2)
+        AND ($3::text = '' OR question ILIKE '%' || $3 || '%')
+      ORDER BY created_at DESC
+      LIMIT $4
+    `,
+    [userId, dataSourceId, search, limit]
+  );
+
+  return json(res, 200, { items: result.rows });
+}
+
 async function handleRunSession(req, res, sessionId) {
   const body = await readJsonBody(req);
   const requestedProvider = body.llm_provider || null;
@@ -1231,6 +1254,10 @@ async function routeRequest(req, res) {
 
   if (req.method === "POST" && pathname === "/v1/query/sessions") {
     return handleCreateSession(req, res);
+  }
+
+  if (req.method === "GET" && pathname === "/v1/query/prompts/history") {
+    return handlePromptHistory(req, res, requestUrl);
   }
 
   const runMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/run$/);

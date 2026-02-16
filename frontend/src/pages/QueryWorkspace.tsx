@@ -21,6 +21,7 @@ import type { components } from '../lib/api/types';
 
 // Types
 type RunResponse = components['schemas']['RunSessionResponse'];
+type PromptHistoryItem = components['schemas']['PromptHistoryItem'];
 
 interface LlmProvider {
     id: string;
@@ -107,6 +108,10 @@ export const QueryWorkspace: React.FC = () => {
     const [maxRows, setMaxRows] = useState(1000);
     const [timeout, setTimeout] = useState(60);
     const [isReadOnly, setIsReadOnly] = useState(false);
+    const [promptHistory, setPromptHistory] = useState<PromptHistoryItem[]>([]);
+    const [isPromptHistoryOpen, setIsPromptHistoryOpen] = useState(false);
+    const [isPromptHistoryLoading, setIsPromptHistoryLoading] = useState(false);
+    const [promptHistoryQuery, setPromptHistoryQuery] = useState('');
 
     // Export controls
     const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
@@ -120,6 +125,7 @@ export const QueryWorkspace: React.FC = () => {
     const [sqlHeight, setSqlHeight] = useState(initialLayout.sqlHeight);
 
     const dragStateRef = useRef<{ section: SectionKey; startY: number; startHeight: number } | null>(null);
+    const promptHistoryRef = useRef<HTMLDivElement | null>(null);
 
     // --- Effects ---
     useEffect(() => {
@@ -177,7 +183,58 @@ export const QueryWorkspace: React.FC = () => {
         };
     }, []);
 
+    useEffect(() => {
+        if (!isPromptHistoryOpen) return;
+
+        const onDocumentClick = (event: MouseEvent) => {
+            const target = event.target as Node | null;
+            if (promptHistoryRef.current && target && !promptHistoryRef.current.contains(target)) {
+                setIsPromptHistoryOpen(false);
+            }
+        };
+
+        const onEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setIsPromptHistoryOpen(false);
+            }
+        };
+
+        window.addEventListener('mousedown', onDocumentClick);
+        window.addEventListener('keydown', onEscape);
+        return () => {
+            window.removeEventListener('mousedown', onDocumentClick);
+            window.removeEventListener('keydown', onEscape);
+        };
+    }, [isPromptHistoryOpen]);
+
+    useEffect(() => {
+        if (!isPromptHistoryOpen) return;
+
+        void fetchPromptHistory();
+    }, [isPromptHistoryOpen, selectedDataSourceId]);
+
     // --- Actions ---
+    const fetchPromptHistory = async () => {
+        setIsPromptHistoryLoading(true);
+        try {
+            const { data } = await client.GET('/v1/query/prompts/history', {
+                params: {
+                    query: {
+                        data_source_id: selectedDataSourceId || undefined,
+                        limit: 100,
+                    },
+                },
+            });
+
+            setPromptHistory(data?.items || []);
+        } catch (error) {
+            console.error(error);
+            setPromptHistory([]);
+        } finally {
+            setIsPromptHistoryLoading(false);
+        }
+    };
+
     const handleAsk = async () => {
         if (!selectedDataSourceId || !question.trim()) return;
 
@@ -198,6 +255,7 @@ export const QueryWorkspace: React.FC = () => {
                 console.error(error);
             } else if (data) {
                 setSessionId(data.session_id);
+                void fetchPromptHistory();
                 await generateSql(data.session_id);
             }
         } catch (err) {
@@ -309,6 +367,10 @@ export const QueryWorkspace: React.FC = () => {
         };
     };
 
+    const filteredPromptHistory = promptHistoryQuery.trim()
+        ? promptHistory.filter((item) => item.question.toLowerCase().includes(promptHistoryQuery.trim().toLowerCase()))
+        : promptHistory;
+
     return (
         <div className="h-full flex overflow-hidden">
             {/* Main Workspace */}
@@ -417,9 +479,58 @@ export const QueryWorkspace: React.FC = () => {
                                         <span className="text-xs text-gray-500">s</span>
                                     </div>
 
-                                    <button className="ml-auto px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50">
-                                        Prompt History
-                                    </button>
+                                    <div ref={promptHistoryRef} className="ml-auto relative">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsPromptHistoryOpen((prev) => !prev)}
+                                            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+                                        >
+                                            Prompt History
+                                        </button>
+                                        {isPromptHistoryOpen && (
+                                            <div className="absolute right-0 top-full mt-2 w-[460px] max-w-[calc(100vw-2rem)] rounded-md border border-gray-200 bg-white shadow-lg z-30">
+                                                <div className="p-3 border-b border-gray-100">
+                                                    <input
+                                                        type="text"
+                                                        value={promptHistoryQuery}
+                                                        onChange={(e) => setPromptHistoryQuery(e.target.value)}
+                                                        placeholder="Search prompt history..."
+                                                        className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                    />
+                                                </div>
+                                                <div className="max-h-72 overflow-auto">
+                                                    {isPromptHistoryLoading && (
+                                                        <div className="px-3 py-6 text-xs text-gray-500 flex items-center justify-center gap-2">
+                                                            <Loader2 size={14} className="animate-spin" />
+                                                            Loading prompt history...
+                                                        </div>
+                                                    )}
+                                                    {!isPromptHistoryLoading && filteredPromptHistory.length === 0 && (
+                                                        <div className="px-3 py-6 text-xs text-gray-500 text-center">
+                                                            No prompts found.
+                                                        </div>
+                                                    )}
+                                                    {!isPromptHistoryLoading && filteredPromptHistory.map((item) => (
+                                                        <button
+                                                            key={item.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setQuestion(item.question);
+                                                                setIsPromptHistoryOpen(false);
+                                                            }}
+                                                            className="w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
+                                                            title={item.question}
+                                                        >
+                                                            <div className="text-xs font-medium text-gray-700 line-clamp-2 break-words">{item.question}</div>
+                                                            <div className="mt-1 text-[11px] text-gray-500">
+                                                                {new Date(item.created_at).toLocaleString()}
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                     <button
                                         onClick={handleAsk}
                                         disabled={isGenerating || !question.trim() || !selectedDataSourceId}
