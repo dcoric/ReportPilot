@@ -45,10 +45,21 @@ const MOCK_GATES: ReleaseGateData = {
     ]
 };
 
+const benchmarkDataSourceName = import.meta.env.VITE_BENCHMARK_DATA_SOURCE_NAME || 'dvdrental';
+const benchmarkDbUser = import.meta.env.VITE_BENCHMARK_DB_USER || 'postgres';
+const benchmarkDbPassword = import.meta.env.VITE_BENCHMARK_DB_PASSWORD || 'postgres';
+const benchmarkFixturePort = import.meta.env.VITE_BENCHMARK_FIXTURE_PORT || '5440';
+const benchmarkConnectionHost = import.meta.env.VITE_BENCHMARK_CONNECTION_HOST || 'host.docker.internal';
+const benchmarkOracleHost = import.meta.env.VITE_BENCHMARK_ORACLE_HOST || 'localhost';
+const benchmarkConnectionRef = import.meta.env.VITE_BENCHMARK_CONNECTION_REF
+    || `postgresql://${benchmarkDbUser}:${benchmarkDbPassword}@${benchmarkConnectionHost}:${benchmarkFixturePort}/${benchmarkDataSourceName}`;
+const benchmarkOracleConn = import.meta.env.VITE_BENCHMARK_ORACLE_CONN
+    || `postgresql://${benchmarkDbUser}:${benchmarkDbPassword}@${benchmarkOracleHost}:${benchmarkFixturePort}/${benchmarkDataSourceName}`;
+
 const BENCHMARK_CLI_COMMAND = [
-    'BENCHMARK_DATA_SOURCE_NAME=dvdrental \\',
-    'BENCHMARK_CONNECTION_REF=postgresql://postgres:postgres@host.docker.internal:5440/dvdrental \\',
-    'BENCHMARK_ORACLE_CONN=postgresql://postgres:postgres@localhost:5440/dvdrental \\',
+    `BENCHMARK_DATA_SOURCE_NAME=${benchmarkDataSourceName} \\`,
+    `BENCHMARK_CONNECTION_REF=${benchmarkConnectionRef} \\`,
+    `BENCHMARK_ORACLE_CONN=${benchmarkOracleConn} \\`,
     'npm run benchmark:mvp'
 ].join('\n');
 
