@@ -211,7 +211,6 @@ export const QueryWorkspace: React.FC = () => {
             <div className="flex-1 flex overflow-hidden">
                 {/* Left Sidebar */}
                 <Sidebar
-                    dataSources={dataSources}
                     selectedDataSourceId={selectedDataSourceId}
                     onSelectDataSource={setSelectedDataSourceId}
                 />
