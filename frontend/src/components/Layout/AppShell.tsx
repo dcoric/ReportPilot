@@ -15,7 +15,7 @@ import styles from './AppShell.module.css';
 import { useDataSource } from '../../hooks/useDataSource';
 
 const NAV_ITEMS = [
-    { path: '/', label: 'Dasbhoard', icon: LayoutDashboard },
+    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/data-sources', label: 'Data Sources', icon: Database },
     { path: '/llm-providers', label: 'LLM Providers', icon: Server },
     { path: '/schema', label: 'Schema Explorer', icon: Layers },
