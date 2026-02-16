@@ -12,6 +12,7 @@ const { reindexRagDocuments } = require("./services/ragService");
 const { retrieveRagContext } = require("./services/ragRetrieval");
 const { buildObservabilityMetrics, loadLatestBenchmarkReleaseGates } = require("./services/observabilityService");
 const { exportQueryResult, SUPPORTED_FORMATS } = require("./services/exportService");
+const { createDelivery, getDeliveryStatus } = require("./services/deliveryService");
 const { OpenAiAdapter } = require("./adapters/llm/openAiAdapter");
 const { GeminiAdapter } = require("./adapters/llm/geminiAdapter");
 const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
@@ -859,6 +860,60 @@ async function handleExportSession(req, res, sessionId) {
   }
 }
 
+async function handleExportDeliver(req, res, sessionId) {
+  const body = await readJsonBody(req);
+  const { delivery_mode: deliveryMode, format = "json", recipients } = body;
+
+  if (!deliveryMode || !["download", "email"].includes(deliveryMode)) {
+    return badRequest(res, "delivery_mode must be 'download' or 'email'");
+  }
+
+  const sessionResult = await appDb.query("SELECT id FROM query_sessions WHERE id = $1", [sessionId]);
+  if (sessionResult.rowCount === 0) {
+    return json(res, 404, { error: "not_found", message: "Session not found" });
+  }
+
+  const requestedBy = req.headers["x-user-id"] || "anonymous";
+
+  try {
+    const delivery = await createDelivery({ sessionId, deliveryMode, format, recipients, requestedBy });
+
+    if (deliveryMode === "download") {
+      res.writeHead(200, {
+        "Content-Type": delivery.contentType,
+        "Content-Disposition": `attachment; filename="${delivery.filename}"`,
+        "Content-Length": delivery.buffer.length,
+        "x-export-id": delivery.id
+      });
+      return res.end(delivery.buffer);
+    }
+
+    // Email mode: return accepted with tracking ID
+    return json(res, 202, {
+      export_id: delivery.id,
+      status: delivery.status,
+      delivery_mode: delivery.delivery_mode
+    });
+  } catch (err) {
+    if (err.statusCode === 400) {
+      return badRequest(res, err.message);
+    }
+    if (err.message === "Session not found" || err.message === "No query attempts found for this session") {
+      return json(res, 404, { error: "not_found", message: err.message });
+    }
+    console.error("[export/deliver] failed:", err);
+    return internalError(res);
+  }
+}
+
+async function handleExportStatus(_req, res, exportId) {
+  const delivery = await getDeliveryStatus(exportId);
+  if (!delivery) {
+    return json(res, 404, { error: "not_found", message: "Export delivery not found" });
+  }
+  return json(res, 200, delivery);
+}
+
 async function handleProviderList(_req, res) {
   const result = await appDb.query(
     `SELECT id, provider, default_model, enabled, created_at, updated_at
@@ -1164,6 +1219,16 @@ async function routeRequest(req, res) {
   const exportMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/export$/);
   if (req.method === "POST" && exportMatch) {
     return handleExportSession(req, res, exportMatch[1]);
+  }
+
+  const deliverMatch = pathname.match(/^\/v1\/query\/sessions\/([^/]+)\/export\/deliver$/);
+  if (req.method === "POST" && deliverMatch) {
+    return handleExportDeliver(req, res, deliverMatch[1]);
+  }
+
+  const exportStatusMatch = pathname.match(/^\/v1\/exports\/([^/]+)\/status$/);
+  if (req.method === "GET" && exportStatusMatch) {
+    return handleExportStatus(req, res, exportStatusMatch[1]);
   }
 
   if (req.method === "GET" && pathname === "/v1/llm/providers") {

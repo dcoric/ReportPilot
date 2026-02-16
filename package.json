@@ -15,6 +15,7 @@
   "dependencies": {
     "csv-stringify": "^6.6.0",
     "node-sql-parser": "^5.3.8",
+    "nodemailer": "^8.0.1",
     "pg": "^8.13.1",
     "xlsx": "^0.18.5"
   }
