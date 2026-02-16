@@ -313,6 +313,21 @@ Build a production-ready internal UI that lets an analyst:
 - Failed deliveries surface actionable status and error reason.
 - Delivery events are auditable.
 
+## Ticket BE-003: Remove Data Source API and UI Action [DONE]
+
+- Objective: Allow users to delete a data source and its dependent data (schema objects, semantic entities, etc.).
+- Scope:
+- `DELETE /v1/data-sources/{id}` backend endpoint with cascading cleanup.
+- Trash icon action button in the Data Sources list UI with confirmation dialog.
+- APIs:
+- `DELETE /v1/data-sources/{id}`
+- Acceptance Criteria:
+- User can remove a data source from the list via an action button.
+- Confirmation dialog prevents accidental deletion.
+- Backend cascades deletion to dependent schema objects, semantic entities, metric definitions, join policies, and RAG documents.
+- Success toast confirms removal and list refreshes without full page reload.
+- Attempting to delete a non-existent data source returns 404.
+
 ---
 
 ## Suggested Delivery Sequence
