@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Play,
     Copy,
@@ -126,6 +127,14 @@ export const QueryWorkspace: React.FC = () => {
 
     const dragStateRef = useRef<{ section: SectionKey; startY: number; startHeight: number } | null>(null);
     const promptHistoryRef = useRef<HTMLDivElement | null>(null);
+    const promptHistoryButtonRef = useRef<HTMLButtonElement | null>(null);
+    const promptHistoryPanelRef = useRef<HTMLDivElement | null>(null);
+    const [promptHistoryPosition, setPromptHistoryPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>({
+        top: 0,
+        left: 0,
+        width: 620,
+        maxHeight: 420,
+    });
 
     // --- Effects ---
     useEffect(() => {
@@ -188,7 +197,9 @@ export const QueryWorkspace: React.FC = () => {
 
         const onDocumentClick = (event: MouseEvent) => {
             const target = event.target as Node | null;
-            if (promptHistoryRef.current && target && !promptHistoryRef.current.contains(target)) {
+            const clickedButtonArea = promptHistoryRef.current && target && promptHistoryRef.current.contains(target);
+            const clickedPanelArea = promptHistoryPanelRef.current && target && promptHistoryPanelRef.current.contains(target);
+            if (!clickedButtonArea && !clickedPanelArea) {
                 setIsPromptHistoryOpen(false);
             }
         };
@@ -204,6 +215,37 @@ export const QueryWorkspace: React.FC = () => {
         return () => {
             window.removeEventListener('mousedown', onDocumentClick);
             window.removeEventListener('keydown', onEscape);
+        };
+    }, [isPromptHistoryOpen]);
+
+    useEffect(() => {
+        if (!isPromptHistoryOpen) return;
+
+        const updatePosition = () => {
+            const button = promptHistoryButtonRef.current;
+            if (!button) return;
+
+            const rect = button.getBoundingClientRect();
+            const viewportPadding = 16;
+            const desiredWidth = Math.min(620, window.innerWidth - viewportPadding * 2);
+            const left = Math.max(viewportPadding, Math.min(rect.right - desiredWidth, window.innerWidth - desiredWidth - viewportPadding));
+
+            const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+            const spaceAbove = rect.top - viewportPadding;
+            const showBelow = spaceBelow >= 260 || spaceBelow >= spaceAbove;
+            const maxHeight = Math.max(220, Math.min(420, showBelow ? spaceBelow - 8 : spaceAbove - 8));
+            const top = showBelow ? rect.bottom + 8 : Math.max(viewportPadding, rect.top - maxHeight - 8);
+
+            setPromptHistoryPosition({ top, left, width: desiredWidth, maxHeight });
+        };
+
+        updatePosition();
+        window.addEventListener('resize', updatePosition);
+        window.addEventListener('scroll', updatePosition, true);
+
+        return () => {
+            window.removeEventListener('resize', updatePosition);
+            window.removeEventListener('scroll', updatePosition, true);
         };
     }, [isPromptHistoryOpen]);
 
@@ -500,32 +542,42 @@ export const QueryWorkspace: React.FC = () => {
 
                                     <div ref={promptHistoryRef} className="ml-auto relative">
                                         <button
+                                            ref={promptHistoryButtonRef}
                                             type="button"
                                             onClick={() => setIsPromptHistoryOpen((prev) => !prev)}
                                             className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
                                         >
                                             Prompt History
                                         </button>
-                                        {isPromptHistoryOpen && (
-                                            <div className="absolute right-0 bottom-full mb-2 w-[460px] max-w-[calc(100vw-2rem)] rounded-md border border-gray-200 bg-white shadow-lg z-50">
-                                                <div className="p-3 border-b border-gray-100">
+                                        {isPromptHistoryOpen && typeof document !== 'undefined' && createPortal(
+                                            <div
+                                                ref={promptHistoryPanelRef}
+                                                className="fixed rounded-xl border border-gray-200 bg-white shadow-2xl z-[200] overflow-hidden"
+                                                style={{
+                                                    top: promptHistoryPosition.top,
+                                                    left: promptHistoryPosition.left,
+                                                    width: promptHistoryPosition.width,
+                                                }}
+                                            >
+                                                <div className="px-5 pt-4 pb-3 border-b border-gray-100 bg-gray-50/60">
+                                                    <div className="text-sm font-semibold text-gray-800 mb-2">Prompt History</div>
                                                     <input
                                                         type="text"
                                                         value={promptHistoryQuery}
                                                         onChange={(e) => setPromptHistoryQuery(e.target.value)}
                                                         placeholder="Search prompt history..."
-                                                        className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                     />
                                                 </div>
-                                                <div className="max-h-72 overflow-auto">
+                                                <div className="overflow-auto p-2" style={{ maxHeight: promptHistoryPosition.maxHeight }}>
                                                     {isPromptHistoryLoading && (
-                                                        <div className="px-3 py-6 text-xs text-gray-500 flex items-center justify-center gap-2">
+                                                        <div className="px-4 py-10 text-sm text-gray-500 flex items-center justify-center gap-2">
                                                             <Loader2 size={14} className="animate-spin" />
                                                             Loading prompt history...
                                                         </div>
                                                     )}
                                                     {!isPromptHistoryLoading && filteredPromptHistory.length === 0 && (
-                                                        <div className="px-3 py-6 text-xs text-gray-500 text-center">
+                                                        <div className="px-4 py-10 text-sm text-gray-500 text-center">
                                                             No prompts found.
                                                         </div>
                                                     )}
@@ -541,11 +593,11 @@ export const QueryWorkspace: React.FC = () => {
                                                                 }
                                                                 setIsPromptHistoryOpen(false);
                                                             }}
-                                                            className="w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
+                                                            className="w-full text-left px-4 py-3.5 rounded-lg border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-colors mb-1 last:mb-0"
                                                             title={item.question}
                                                         >
-                                                            <div className="text-xs font-medium text-gray-700 line-clamp-2 break-words">{item.question}</div>
-                                                            <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-gray-500">
+                                                            <div className="text-sm font-medium text-gray-800 line-clamp-2 break-words leading-5">{item.question}</div>
+                                                            <div className="mt-2 flex items-center justify-between gap-2 text-xs text-gray-500">
                                                                 <span>{new Date(item.created_at).toLocaleString()}</span>
                                                                 <span className={`font-medium ${item.latest_sql ? 'text-emerald-700' : 'text-gray-400'}`}>
                                                                     {item.latest_sql ? 'SQL cached' : 'No SQL'}
@@ -554,7 +606,8 @@ export const QueryWorkspace: React.FC = () => {
                                                         </button>
                                                     ))}
                                                 </div>
-                                            </div>
+                                            </div>,
+                                            document.body
                                         )}
                                     </div>
                                     <button
