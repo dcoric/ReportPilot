@@ -91,13 +91,14 @@ export const Settings: React.FC = () => {
             }
         } catch (e) {
             toast.error("An error occurred");
+            console.error(e);
         }
     };
 
     const enabledProviders = providers.filter(p => p.enabled);
 
     return (
-        <div className="p-8 max-w-6xl mx-auto">
+        <div className="p-8 max-w-6xl mx-auto h-full overflow-y-auto">
             <div className="flex items-center gap-3 mb-8">
                 <SettingsIcon className="w-8 h-8 text-gray-700" />
                 <div>

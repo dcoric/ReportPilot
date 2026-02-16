@@ -73,7 +73,7 @@ export const ReleaseGates: React.FC = () => {
     if (!data) return <div className="p-8 text-center text-gray-500">No release data found.</div>;
 
     return (
-        <div className="p-8 max-w-5xl mx-auto space-y-8">
+        <div className="p-8 max-w-5xl mx-auto space-y-8 h-full overflow-y-auto">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <ShieldCheck className={`w-8 h-8 ${data.status === 'PASS' ? 'text-green-600' : 'text-amber-500'}`} />

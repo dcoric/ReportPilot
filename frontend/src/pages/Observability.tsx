@@ -76,7 +76,7 @@ export const Observability: React.FC = () => {
     const { summary, history, recent_failures } = metrics;
 
     return (
-        <div className="p-8 max-w-7xl mx-auto space-y-8">
+        <div className="p-8 max-w-7xl mx-auto space-y-8 h-full overflow-y-auto">
             <div className="flex items-center gap-3 mb-2">
                 <Activity className="w-8 h-8 text-blue-600" />
                 <h1 className="text-2xl font-bold text-gray-900">Observability</h1>

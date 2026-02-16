@@ -16,12 +16,9 @@ function App() {
     <Router>
       <Toaster position="top-right" richColors />
       <Routes>
-        {/* QueryWorkspace has its own complete layout, so it doesn't use AppShell */}
-        <Route path="/" element={<QueryWorkspace />} />
-        <Route path="/query" element={<QueryWorkspace />} />
-
-        {/* Other pages still use the traditional AppShell layout */}
         <Route element={<AppShell />}>
+          <Route path="/" element={<QueryWorkspace />} />
+          <Route path="/query" element={<QueryWorkspace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/data-sources" element={<DataSources />} />
           <Route path="/schema" element={<SchemaExplorer />} />

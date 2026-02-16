@@ -2,17 +2,11 @@ import React, { useState } from 'react';
 import { ChevronRight, ChevronDown, FolderClosed, Plus } from 'lucide-react';
 
 
-
-interface SidebarProps {
-    selectedDataSourceId: string;
-    onSelectDataSource: (id: string) => void;
-}
-
-export const Sidebar: React.FC<SidebarProps> = () => {
+export const Sidebar: React.FC = () => {
     const [isSavedReportsExpanded, setIsSavedReportsExpanded] = useState(true);
 
     return (
-        <div className="w-64 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
+        <div className="w-64 bg-gray-50 border-l border-gray-200 flex flex-col h-full">
             {/* Connections Section */}
             <div className="flex-1 overflow-y-auto py-2">
 

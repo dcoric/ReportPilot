@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Copy, RotateCcw, Eye, Loader2, CheckCircle2, Calendar } from 'lucide-react';
+import { Play, Copy, RotateCcw, Eye, Loader2, CheckCircle2, Calendar, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { client } from '../lib/api/client';
 import { Sidebar } from '../components/Layout/Sidebar';
-import { TopHeader } from '../components/Layout/TopHeader';
+import { useDataSource } from '../hooks/useDataSource';
+
 import type { components } from '../lib/api/types';
 
 // Types
-type DataSource = components['schemas']['DataSourceListResponse']['items'][number];
 type RunResponse = components['schemas']['RunSessionResponse'];
 
 interface LlmProvider {
@@ -27,10 +27,10 @@ type TabType = 'results' | 'metadata' | 'citations' | 'query-plan';
 
 export const QueryWorkspace: React.FC = () => {
     // --- State ---
-    const [dataSources, setDataSources] = useState<DataSource[]>([]);
-    const [selectedDataSourceId, setSelectedDataSourceId] = useState<string>('');
+    const { selectedDataSourceId } = useDataSource();
 
     const [question, setQuestion] = useState('');
+
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [generatedSql, setGeneratedSql] = useState('');
     const [originalSql, setOriginalSql] = useState(''); // For reset
@@ -54,14 +54,6 @@ export const QueryWorkspace: React.FC = () => {
 
     // --- Effects ---
     useEffect(() => {
-        const fetchDataSources = async () => {
-            const { data } = await client.GET('/v1/data-sources');
-            if (data?.items) {
-                setDataSources(data.items);
-                if (data.items.length > 0) setSelectedDataSourceId(data.items[0].id);
-            }
-        };
-
         const fetchProviders = async () => {
             const { data } = await client.GET('/v1/llm/providers');
             if (data?.items) {
@@ -74,7 +66,6 @@ export const QueryWorkspace: React.FC = () => {
             }
         };
 
-        fetchDataSources();
         fetchProviders();
     }, []);
 
@@ -199,22 +190,7 @@ export const QueryWorkspace: React.FC = () => {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
-            {/* Top Header */}
-            <TopHeader
-                currentConnection={selectedDataSourceId}
-                dataSources={dataSources}
-                onConnectionChange={setSelectedDataSourceId}
-            />
-
-            {/* Main Layout: Sidebar + Workspace */}
-            <div className="flex-1 flex overflow-hidden">
-                {/* Left Sidebar */}
-                <Sidebar
-                    selectedDataSourceId={selectedDataSourceId}
-                    onSelectDataSource={setSelectedDataSourceId}
-                />
-
+        <div className="h-full flex overflow-hidden">
                 {/* Main Workspace */}
                 <div className="flex-1 flex flex-col overflow-hidden">
                     {/* SECTION 1: Prompt Section */}
@@ -308,6 +284,14 @@ export const QueryWorkspace: React.FC = () => {
 
                                 <button className="ml-auto px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50">
                                     Prompt History
+                                </button>
+                                <button
+                                    onClick={handleAsk}
+                                    disabled={isGenerating || !question.trim() || !selectedDataSourceId}
+                                    className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                                    Ask
                                 </button>
                             </div>
                         </div>
@@ -554,7 +538,9 @@ export const QueryWorkspace: React.FC = () => {
                         </div>
                     )}
                 </div>
-            </div>
+
+                {/* Right Sidebar - Saved Reports */}
+                <Sidebar />
         </div>
     );
 };
