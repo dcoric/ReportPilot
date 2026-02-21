@@ -63,48 +63,11 @@ docker compose down -v
   - `EXPLAIN_MAX_TOTAL_COST=500000`
   - `EXPLAIN_MAX_PLAN_ROWS=1000000`
 
-## SQL Server (Windows + WSL + AdventureWorks2022)
+## Testing Data Sources
 
-Quick setup for connecting this app (running in WSL) to SQL Server Express on Windows.
+For local test DB setup (dvdrental Docker fixture, AdventureWorks on SQL Server Express, and connection strings), see:
 
-1. Configure SQL Server Express on Windows:
-   - Enable `TCP/IP` for `SQLEXPRESS` in SQL Server Configuration Manager.
-   - Set a fixed TCP port (for example `1433`) and restart `SQL Server (SQLEXPRESS)`.
-   - Enable Mixed Mode authentication (`SQL Server and Windows Authentication mode`).
-   - Open Windows Firewall inbound TCP rule for the SQL Server port.
-
-2. Create SQL login and grant read metadata/data access:
-
-```sql
-USE master;
-CREATE LOGIN report_pilot WITH PASSWORD = 'UseAStrongPasswordHere!';
-
-USE AdventureWorks2022;
-CREATE USER report_pilot FOR LOGIN report_pilot;
-ALTER ROLE db_datareader ADD MEMBER report_pilot;
-GRANT VIEW DEFINITION TO report_pilot;
-```
-
-3. In WSL, install `sqlcmd` (Ubuntu 24.04 helper script):
-
-```bash
-./install-mssql-tools.sh
-```
-
-4. Validate connectivity from WSL:
-
-```bash
-WIN_IP=$(ip route | awk '/default/ {print $3}')
-sqlcmd -S "$WIN_IP,1433" -U report_pilot -P 'UseAStrongPasswordHere!' -d AdventureWorks2022 -C -Q "SELECT TOP 1 name FROM sys.tables"
-```
-
-5. Register MSSQL data source in the app using SQL auth (not trusted connection):
-
-```text
-Server=<WIN_IP>,1433;Database=AdventureWorks2022;User Id=report_pilot;Password=UseAStrongPasswordHere!;Encrypt=True;TrustServerCertificate=True;
-```
-
-Note: `Trusted_Connection=True` is not supported in this Linux runtime flow.
+- `test-data/README.md`
 
 ## Current API (Implemented)
 
@@ -183,7 +146,7 @@ Benchmark assets:
 Recommended flow with the dvdrental fixture:
 
 ```bash
-# 1) Start dvdrental test DB
+# 1) Start dvdrental test DB (see test-data/README.md for connection strings)
 docker compose -f test-data/docker-compose.yml up -d
 
 # 2) Start app stack (metadata DB + API)
