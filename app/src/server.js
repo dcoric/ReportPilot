@@ -39,8 +39,25 @@ const EXPLAIN_MAX_PLAN_ROWS = Number(process.env.EXPLAIN_MAX_PLAN_ROWS || 100000
 const RAG_NOTE_TITLE_MAX_LENGTH = 200;
 const RAG_NOTE_CONTENT_MAX_LENGTH = 20000;
 const OPENAPI_SPEC_PATH = path.resolve(__dirname, "../../docs/api/openapi.yaml");
+const FRONTEND_DIST_PATH = path.resolve(__dirname, "../../frontend/dist");
+const FRONTEND_INDEX_PATH = path.join(FRONTEND_DIST_PATH, "index.html");
+const STATIC_CONTENT_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp"
+};
 
 let cachedOpenApiSpec = null;
+let cachedFrontendIndex = null;
 
 function loadOpenApiSpec() {
   if (cachedOpenApiSpec === null) {
@@ -80,6 +97,83 @@ function serveOpenApiSpec(res) {
   const spec = loadOpenApiSpec();
   res.writeHead(200, { "Content-Type": "application/yaml; charset=utf-8" });
   res.end(spec);
+}
+
+function frontendIsAvailable() {
+  return fs.existsSync(FRONTEND_INDEX_PATH);
+}
+
+function getStaticContentType(filePath) {
+  const extname = path.extname(filePath).toLowerCase();
+  return STATIC_CONTENT_TYPES[extname] || "application/octet-stream";
+}
+
+function isPathWithin(parentPath, candidatePath) {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
+function serveFrontendIndex(res) {
+  if (!frontendIsAvailable()) {
+    return false;
+  }
+
+  if (cachedFrontendIndex === null) {
+    cachedFrontendIndex = fs.readFileSync(FRONTEND_INDEX_PATH);
+  }
+
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(cachedFrontendIndex);
+  return true;
+}
+
+function serveFrontendAsset(res, pathname) {
+  if (!frontendIsAvailable()) {
+    return false;
+  }
+
+  const relativeAssetPath = decodeURIComponent(pathname).replace(/^\/+/, "");
+  if (!relativeAssetPath) {
+    return false;
+  }
+
+  const assetPath = path.resolve(FRONTEND_DIST_PATH, relativeAssetPath);
+  if (!isPathWithin(FRONTEND_DIST_PATH, assetPath)) {
+    return false;
+  }
+
+  if (!fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) {
+    return false;
+  }
+
+  const asset = fs.readFileSync(assetPath);
+  res.writeHead(200, { "Content-Type": getStaticContentType(assetPath) });
+  res.end(asset);
+  return true;
+}
+
+function shouldServeFrontendApp(req, pathname) {
+  if (req.method !== "GET" || !frontendIsAvailable()) {
+    return false;
+  }
+
+  if (
+    pathname === "/health" ||
+    pathname === "/ready" ||
+    pathname === "/docs" ||
+    pathname === "/docs/" ||
+    pathname === "/openapi.yaml" ||
+    pathname.startsWith("/v1/")
+  ) {
+    return false;
+  }
+
+  if (path.extname(pathname)) {
+    return false;
+  }
+
+  const accept = String(req.headers.accept || "");
+  return accept.includes("text/html");
 }
 
 async function checkDatabase() {
@@ -1456,6 +1550,10 @@ async function routeRequest(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/") {
+    if (serveFrontendIndex(res)) {
+      return;
+    }
+
     return json(res, 200, {
       service: "report-pilot",
       status: "running",
@@ -1469,6 +1567,10 @@ async function routeRequest(req, res) {
 
   if (req.method === "GET" && pathname === "/openapi.yaml") {
     return serveOpenApiSpec(res);
+  }
+
+  if (req.method === "GET" && serveFrontendAsset(res, pathname)) {
+    return;
   }
 
   if (req.method === "POST" && pathname === "/v1/data-sources") {
@@ -1585,6 +1687,10 @@ async function routeRequest(req, res) {
 
   if (req.method === "POST" && pathname === "/v1/rag/reindex") {
     return handleRagReindex(req, res, requestUrl);
+  }
+
+  if (shouldServeFrontendApp(req, pathname)) {
+    return serveFrontendIndex(res);
   }
 
   return notFound(res);
