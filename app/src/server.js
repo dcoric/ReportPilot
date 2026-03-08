@@ -838,6 +838,7 @@ async function handleRunSession(req, res, sessionId) {
   const body = await readJsonBody(req);
   const requestedProvider = body.llm_provider || null;
   const requestedModel = body.model || null;
+  const noExecute = body.no_execute === true;
   const sqlOverride = typeof body.sql_override === "string" && body.sql_override.trim() ? body.sql_override.trim() : null;
   const maxRows = clamp(Number(body.max_rows || 1000), 1, 100000);
   const timeoutMs = clamp(Number(body.timeout_ms || 20000), 1000, 120000);
@@ -989,13 +990,8 @@ async function handleRunSession(req, res, sessionId) {
     }
   }
 
-  let adapter;
-  try {
-    adapter = createDatabaseAdapter(session.db_type, session.connection_ref);
-  } catch (err) {
-    return badRequest(res, err.message);
-  }
   const generationStartedAt = Date.now();
+  let adapter = null;
 
   try {
     const safety = validateAndNormalizeSql(generatedSql, {
@@ -1021,9 +1017,17 @@ async function handleRunSession(req, res, sessionId) {
         validationErrors = blockedColumnCheck.errors;
       }
 
-      const adapterValidation = await adapter.validateSql(safeSql);
-      if (validationErrors.length === 0 && !adapterValidation.ok) {
-        validationErrors = adapterValidation.errors;
+      if (!noExecute) {
+        try {
+          adapter = createDatabaseAdapter(session.db_type, session.connection_ref);
+        } catch (err) {
+          return badRequest(res, err.message);
+        }
+
+        const adapterValidation = await adapter.validateSql(safeSql);
+        if (validationErrors.length === 0 && !adapterValidation.ok) {
+          validationErrors = adapterValidation.errors;
+        }
       }
     }
 
@@ -1032,6 +1036,10 @@ async function handleRunSession(req, res, sessionId) {
       errors: validationErrors,
       references: safety.refs || [],
       provider_attempts: generationAttempts,
+      execution: {
+        skipped: noExecute,
+        reason: noExecute ? "no_execute" : null
+      },
       trace: {
         request_id: req.requestId || null
       }
@@ -1067,7 +1075,7 @@ async function handleRunSession(req, res, sessionId) {
       return json(res, 400, { error: "invalid_sql", details: validationErrors, sql: generatedSql });
     }
 
-    if (EXPLAIN_BUDGET_ENABLED && sqlDialect === "postgres") {
+    if (!noExecute && EXPLAIN_BUDGET_ENABLED && sqlDialect === "postgres") {
       const explainRows = await adapter.explain(safeSql);
       const budget = evaluateExplainBudget(explainRows, {
         maxTotalCost: EXPLAIN_MAX_TOTAL_COST,
@@ -1136,8 +1144,6 @@ async function handleRunSession(req, res, sessionId) {
 
     validationJson.citations = citations;
     validationJson.confidence = confidence;
-
-    const execution = await adapter.executeReadOnly(safeSql, { timeoutMs, maxRows });
     const attemptResult = await appDb.query(
       `
         INSERT INTO query_attempts (
@@ -1165,6 +1171,27 @@ async function handleRunSession(req, res, sessionId) {
     );
 
     const attemptId = attemptResult.rows[0].id;
+    if (noExecute) {
+      await appDb.query("UPDATE query_sessions SET status = 'completed' WHERE id = $1", [sessionId]);
+
+      return json(res, 200, {
+        attempt_id: attemptId,
+        sql: safeSql,
+        columns: [],
+        rows: [],
+        row_count: 0,
+        duration_ms: 0,
+        confidence,
+        preview: true,
+        provider: {
+          name: usedProvider,
+          model: usedModel
+        },
+        citations
+      });
+    }
+
+    const execution = await adapter.executeReadOnly(safeSql, { timeoutMs, maxRows });
     await appDb.query(
       `
         INSERT INTO query_results_meta (
@@ -1188,6 +1215,7 @@ async function handleRunSession(req, res, sessionId) {
       row_count: execution.rowCount,
       duration_ms: execution.durationMs,
       confidence,
+      preview: false,
       provider: {
         name: usedProvider,
         model: usedModel
@@ -1209,7 +1237,9 @@ async function handleRunSession(req, res, sessionId) {
       sql: generatedSql
     });
   } finally {
-    await adapter.close();
+    if (adapter) {
+      await adapter.close();
+    }
   }
 }
 

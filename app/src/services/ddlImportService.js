@@ -114,7 +114,7 @@ function parseSchemaFromDdl(ddlText) {
     }
   }
 
-  return { objects, columns, relationships, indexes };
+  return dedupeSnapshot({ objects, columns, relationships, indexes });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -185,13 +185,13 @@ function parseTableBody(schema, tableName, body, columns, pkSet, relationships) 
 
     // ── Column definition ──
     const colMatch = trimmed.match(
-      /^(\[?\w+\]?)\s+([\w]+(?:\s*\([^)]*\))?(?:\s*\(\s*(?:max|MAX)\s*\))?)/
+      /^(\[[^\]]+\]|\w+)\s+((?:\[[^\]]+\]|\w+)(?:\s*\([^)]*\))?)/i
     );
     if (!colMatch) continue;
 
     ordinal++;
     const colName = unquote(colMatch[1]);
-    const dataType = colMatch[2].toLowerCase();
+    const dataType = normalizeDataType(colMatch[2]);
     const hasNotNull = /\bNOT\s+NULL\b/i.test(trimmed);
     const isInlinePk = /\bPRIMARY\s+KEY\b/i.test(trimmed);
 
@@ -250,6 +250,71 @@ function unquote(s) {
     .trim()
     .replace(/^\[/, "")
     .replace(/\]$/, "");
+}
+
+function normalizeDataType(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/\[([^\]]+)\]/g, "$1")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function dedupeSnapshot(snapshot) {
+  const objects = [];
+  const columns = [];
+  const relationships = [];
+  const indexes = [];
+
+  const objectKeys = new Set();
+  for (const object of snapshot.objects || []) {
+    const key = `${String(object.schemaName || "").toLowerCase()}.${String(object.objectName || "").toLowerCase()}`;
+    if (objectKeys.has(key)) continue;
+    objectKeys.add(key);
+    objects.push(object);
+  }
+
+  const columnKeys = new Set();
+  for (const column of snapshot.columns || []) {
+    const key = [
+      String(column.schemaName || "").toLowerCase(),
+      String(column.objectName || "").toLowerCase(),
+      String(column.columnName || "").toLowerCase()
+    ].join(".");
+    if (columnKeys.has(key)) continue;
+    columnKeys.add(key);
+    columns.push(column);
+  }
+
+  const relationshipKeys = new Set();
+  for (const relationship of snapshot.relationships || []) {
+    const key = [
+      String(relationship.fromSchema || "").toLowerCase(),
+      String(relationship.fromObject || "").toLowerCase(),
+      String(relationship.fromColumn || "").toLowerCase(),
+      String(relationship.toSchema || "").toLowerCase(),
+      String(relationship.toObject || "").toLowerCase(),
+      String(relationship.toColumn || "").toLowerCase(),
+      String(relationship.relationshipType || "").toLowerCase()
+    ].join("|");
+    if (relationshipKeys.has(key)) continue;
+    relationshipKeys.add(key);
+    relationships.push(relationship);
+  }
+
+  const indexKeys = new Set();
+  for (const index of snapshot.indexes || []) {
+    const key = [
+      String(index.schemaName || "").toLowerCase(),
+      String(index.objectName || "").toLowerCase(),
+      String(index.indexName || "").toLowerCase()
+    ].join("|");
+    if (indexKeys.has(key)) continue;
+    indexKeys.add(key);
+    indexes.push(index);
+  }
+
+  return { objects, columns, relationships, indexes };
 }
 
 function splitColumnList(raw) {
