@@ -140,7 +140,7 @@ export const QueryWorkspace: React.FC = () => {
     const [model, setModel] = useState('');
     const [maxRows, setMaxRows] = useState(1000);
     const [timeout, setTimeout] = useState(60);
-    const [isReadOnly, setIsReadOnly] = useState(false);
+    const [isDryRun, setIsDryRun] = useState(false);
     const [promptHistory, setPromptHistory] = useState<PromptHistoryItem[]>([]);
     const [isPromptHistoryOpen, setIsPromptHistoryOpen] = useState(false);
     const [isPromptHistoryLoading, setIsPromptHistoryLoading] = useState(false);
@@ -384,6 +384,7 @@ export const QueryWorkspace: React.FC = () => {
             body: {
                 llm_provider: isRunProvider(provider) ? provider : undefined,
                 model: model || undefined,
+                no_execute: isDryRun || undefined,
                 max_rows: maxRows,
                 timeout_ms: Math.max(1000, Math.round(timeout * 1000)),
                 ...(sqlOverride ? { sql_override: sqlOverride } : {}),
@@ -394,6 +395,7 @@ export const QueryWorkspace: React.FC = () => {
             setGeneratedSql(data.sql);
             setOriginalSql(data.sql);
             setQueryResult(data);
+            setActiveTab(data.preview ? 'metadata' : 'results');
             return;
         }
 
@@ -419,6 +421,7 @@ export const QueryWorkspace: React.FC = () => {
                     llm_provider: isRunProvider(provider) ? provider : undefined,
                     model: model || undefined,
                     sql_override: sqlOverride,
+                    no_execute: isDryRun || undefined,
                     max_rows: maxRows,
                     timeout_ms: Math.max(1000, Math.round(timeout * 1000)),
                 }
@@ -428,7 +431,8 @@ export const QueryWorkspace: React.FC = () => {
                 setGeneratedSql(data.sql);
                 setOriginalSql(data.sql);
                 setQueryResult(data);
-                toast.success('Query executed successfully');
+                setActiveTab(data.preview ? 'metadata' : 'results');
+                toast.success(data.preview ? 'Preview generated successfully' : 'Query executed successfully');
                 return;
             }
 
@@ -557,11 +561,11 @@ export const QueryWorkspace: React.FC = () => {
                         <label className="flex items-center gap-2 text-xs text-gray-600">
                             <input
                                 type="checkbox"
-                                checked={isReadOnly}
-                                onChange={(e) => setIsReadOnly(e.target.checked)}
+                                checked={isDryRun}
+                                onChange={(e) => setIsDryRun(e.target.checked)}
                                 className="rounded"
                             />
-                            Read only
+                            Dry run (no execute)
                         </label>
                     </div>
 
@@ -572,6 +576,11 @@ export const QueryWorkspace: React.FC = () => {
                             style={{ height: promptHeight }}
                         >
                             <div className="max-w-6xl mx-auto p-4">
+                                {isDryRun && (
+                                    <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                        Dry run skips live database validation and execution. You will get generated SQL, citations, and confidence only.
+                                    </div>
+                                )}
                                 {/* Question Input */}
                                 <textarea
                                     className="w-full px-4 py-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none mb-3"
@@ -585,7 +594,6 @@ export const QueryWorkspace: React.FC = () => {
                                             handleAsk();
                                         }
                                     }}
-                                    disabled={isReadOnly}
                                 />
 
                                 {/* Controls Row */}
@@ -722,7 +730,7 @@ export const QueryWorkspace: React.FC = () => {
                                         className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                                        Ask
+                                        {isDryRun ? 'Preview' : 'Ask'}
                                     </button>
                                 </div>
                             </div>
@@ -778,7 +786,7 @@ export const QueryWorkspace: React.FC = () => {
                             <button
                                 onClick={handleFormatSql}
                                 className="px-2 py-1 text-xs font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled={!generatedSql || isReadOnly}
+                                disabled={!generatedSql}
                             >
                                 Format SQL
                             </button>
@@ -788,7 +796,7 @@ export const QueryWorkspace: React.FC = () => {
                                 className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-                                Run
+                                {isDryRun ? 'Preview SQL' : 'Run'}
                             </button>
                         </div>
                     </div>
@@ -821,7 +829,6 @@ export const QueryWorkspace: React.FC = () => {
                                                 fontSize: 12,
                                                 lineNumbersMinChars: 3,
                                                 minimap: { enabled: false },
-                                                readOnly: isReadOnly,
                                                 scrollBeyondLastLine: false,
                                                 tabSize: 2,
                                                 wordWrap: 'on',
@@ -879,20 +886,26 @@ export const QueryWorkspace: React.FC = () => {
                     <div className="flex-1 overflow-auto">
                         {activeTab === 'results' && (
                             <div className="p-0">
+                                {queryResult?.preview && !isRunning && (
+                                    <div className="m-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        Preview only. SQL was generated from your saved schema context, but it was not executed against the source database.
+                                    </div>
+                                )}
+
                                 {!queryResult && !isRunning && (
                                     <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
-                                        <p>No results yet. Run a query to see results.</p>
+                                        <p>No results yet. {isDryRun ? 'Preview SQL to inspect the generated response.' : 'Run a query to see results.'}</p>
                                     </div>
                                 )}
 
                                 {isRunning && (
                                     <div className="h-full flex items-center justify-center text-gray-400">
                                         <Loader2 className="animate-spin mr-2" size={20} />
-                                        Executing query...
+                                        {isDryRun ? 'Generating preview...' : 'Executing query...'}
                                     </div>
                                 )}
 
-                                {queryResult && (
+                                {queryResult && !queryResult.preview && (
                                     <table className="min-w-full divide-y divide-gray-200">
                                         <thead className="bg-gray-50 sticky top-0">
                                             <tr>
@@ -929,20 +942,24 @@ export const QueryWorkspace: React.FC = () => {
                                             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Execution Info</div>
                                             <div className="space-y-2 text-sm">
                                                 <div className="flex justify-between py-2 border-b border-gray-100">
+                                                    <span className="text-gray-600">Mode:</span>
+                                                    <span className="font-medium">{queryResult.preview ? 'Dry run preview' : 'Executed'}</span>
+                                                </div>
+                                                <div className="flex justify-between py-2 border-b border-gray-100">
                                                     <span className="text-gray-600">Attempt ID:</span>
                                                     <span className="font-medium text-xs font-mono">{queryResult.attempt_id}</span>
                                                 </div>
                                                 <div className="flex justify-between py-2 border-b border-gray-100">
                                                     <span className="text-gray-600">Row Count:</span>
-                                                    <span className="font-medium">{queryResult.row_count}</span>
+                                                    <span className="font-medium">{queryResult.preview ? 'Not executed' : queryResult.row_count}</span>
                                                 </div>
                                                 <div className="flex justify-between py-2 border-b border-gray-100">
                                                     <span className="text-gray-600">Rows Returned:</span>
-                                                    <span className="font-medium">{queryResult.rows.length}</span>
+                                                    <span className="font-medium">{queryResult.preview ? 'Not executed' : queryResult.rows.length}</span>
                                                 </div>
                                                 <div className="flex justify-between py-2 border-b border-gray-100">
                                                     <span className="text-gray-600">Execution Duration:</span>
-                                                    <span className="font-medium">{queryResult.duration_ms} ms</span>
+                                                    <span className="font-medium">{queryResult.preview ? 'Not executed' : `${queryResult.duration_ms} ms`}</span>
                                                 </div>
                                                 <div className="flex justify-between py-2 border-b border-gray-100">
                                                     <span className="text-gray-600">Confidence:</span>

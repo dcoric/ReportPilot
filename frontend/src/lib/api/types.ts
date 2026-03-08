@@ -1269,6 +1269,8 @@ export interface components {
             model?: string;
             /** @description Optional SQL to execute directly, skipping LLM generation. */
             sql_override?: string;
+            /** @description When true, generate and validate SQL without connecting to or executing against the source database. */
+            no_execute?: boolean;
             max_rows?: number;
             timeout_ms?: number;
         };
@@ -1282,6 +1284,8 @@ export interface components {
             row_count: number;
             duration_ms: number;
             confidence: number;
+            /** @description True when the request was handled as a dry-run and no query was executed. */
+            preview: boolean;
         };
         FeedbackRequest: {
             rating: number;

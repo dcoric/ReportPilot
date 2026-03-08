@@ -734,6 +734,9 @@ components:
         sql_override:
           type: string
           description: Optional SQL to execute directly, skipping LLM generation.
+        no_execute:
+          type: boolean
+          description: When true, generate and validate SQL without connecting to or executing against the source database.
         max_rows:
           type: integer
           minimum: 1
@@ -764,7 +767,10 @@ components:
           type: integer
         confidence:
           type: number
-      required: [attempt_id, sql, columns, rows, row_count, duration_ms, confidence]
+        preview:
+          type: boolean
+          description: True when the request was handled as a dry-run and no query was executed.
+      required: [attempt_id, sql, columns, rows, row_count, duration_ms, confidence, preview]
     FeedbackRequest:
       type: object
       properties:
