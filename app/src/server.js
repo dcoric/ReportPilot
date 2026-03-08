@@ -3,7 +3,8 @@ const path = require("path");
 const http = require("http");
 const appDb = require("./lib/appDb");
 const { createDatabaseAdapter, isSupportedDbType } = require("./adapters/dbAdapterFactory");
-const { runIntrospection } = require("./services/introspectionService");
+const { runIntrospection, persistSnapshot } = require("./services/introspectionService");
+const { parseSchemaFromDdl } = require("./services/ddlImportService");
 const { generateSqlWithRouting } = require("./services/llmSqlService");
 const { validateAndNormalizeSql } = require("./services/sqlSafety");
 const {
@@ -39,8 +40,25 @@ const EXPLAIN_MAX_PLAN_ROWS = Number(process.env.EXPLAIN_MAX_PLAN_ROWS || 100000
 const RAG_NOTE_TITLE_MAX_LENGTH = 200;
 const RAG_NOTE_CONTENT_MAX_LENGTH = 20000;
 const OPENAPI_SPEC_PATH = path.resolve(__dirname, "../../docs/api/openapi.yaml");
+const FRONTEND_DIST_PATH = path.resolve(__dirname, "../../frontend/dist");
+const FRONTEND_INDEX_PATH = path.join(FRONTEND_DIST_PATH, "index.html");
+const STATIC_CONTENT_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp"
+};
 
 let cachedOpenApiSpec = null;
+let cachedFrontendIndex = null;
 
 function loadOpenApiSpec() {
   if (cachedOpenApiSpec === null) {
@@ -80,6 +98,83 @@ function serveOpenApiSpec(res) {
   const spec = loadOpenApiSpec();
   res.writeHead(200, { "Content-Type": "application/yaml; charset=utf-8" });
   res.end(spec);
+}
+
+function frontendIsAvailable() {
+  return fs.existsSync(FRONTEND_INDEX_PATH);
+}
+
+function getStaticContentType(filePath) {
+  const extname = path.extname(filePath).toLowerCase();
+  return STATIC_CONTENT_TYPES[extname] || "application/octet-stream";
+}
+
+function isPathWithin(parentPath, candidatePath) {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
+function serveFrontendIndex(res) {
+  if (!frontendIsAvailable()) {
+    return false;
+  }
+
+  if (cachedFrontendIndex === null) {
+    cachedFrontendIndex = fs.readFileSync(FRONTEND_INDEX_PATH);
+  }
+
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(cachedFrontendIndex);
+  return true;
+}
+
+function serveFrontendAsset(res, pathname) {
+  if (!frontendIsAvailable()) {
+    return false;
+  }
+
+  const relativeAssetPath = decodeURIComponent(pathname).replace(/^\/+/, "");
+  if (!relativeAssetPath) {
+    return false;
+  }
+
+  const assetPath = path.resolve(FRONTEND_DIST_PATH, relativeAssetPath);
+  if (!isPathWithin(FRONTEND_DIST_PATH, assetPath)) {
+    return false;
+  }
+
+  if (!fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) {
+    return false;
+  }
+
+  const asset = fs.readFileSync(assetPath);
+  res.writeHead(200, { "Content-Type": getStaticContentType(assetPath) });
+  res.end(asset);
+  return true;
+}
+
+function shouldServeFrontendApp(req, pathname) {
+  if (req.method !== "GET" || !frontendIsAvailable()) {
+    return false;
+  }
+
+  if (
+    pathname === "/health" ||
+    pathname === "/ready" ||
+    pathname === "/docs" ||
+    pathname === "/docs/" ||
+    pathname === "/openapi.yaml" ||
+    pathname.startsWith("/v1/")
+  ) {
+    return false;
+  }
+
+  if (path.extname(pathname)) {
+    return false;
+  }
+
+  const accept = String(req.headers.accept || "");
+  return accept.includes("text/html");
 }
 
 async function checkDatabase() {
@@ -256,6 +351,35 @@ async function handleIntrospect(req, res, dataSourceId) {
   return json(res, 202, { job_id: jobId, status: "queued" });
 }
 
+async function handleImportSchema(req, res, dataSourceId) {
+  const result = await appDb.query(
+    "SELECT id, db_type FROM data_sources WHERE id = $1",
+    [dataSourceId]
+  );
+  const dataSource = result.rows[0];
+  if (!dataSource) {
+    return json(res, 404, { error: "not_found", message: "Data source not found" });
+  }
+
+  const body = await readJsonBody(req);
+  const ddl = String(body.ddl || "").trim();
+  if (!ddl) {
+    return badRequest(res, "ddl field is required and must be a non-empty string");
+  }
+
+  const snapshot = parseSchemaFromDdl(ddl);
+  if (snapshot.objects.length === 0) {
+    return badRequest(res, "No tables or views found in the provided DDL");
+  }
+
+  await persistSnapshot(dataSourceId, snapshot);
+  reindexRagDocuments(dataSourceId).catch((err) => {
+    console.error(`[import-schema] RAG reindex failed for ${dataSourceId}: ${err.message}`);
+  });
+
+  return json(res, 200, { ok: true, object_count: snapshot.objects.length });
+}
+
 async function handleListSchemaObjects(req, res, requestUrl) {
   const dataSourceId = requestUrl.searchParams.get("data_source_id");
   if (!dataSourceId) {
@@ -264,7 +388,7 @@ async function handleListSchemaObjects(req, res, requestUrl) {
 
   const result = await appDb.query(
     `
-      SELECT id, object_type, schema_name, object_name, description
+      SELECT id, object_type, schema_name, object_name, description, is_ignored
       FROM schema_objects
       WHERE data_source_id = $1
       ORDER BY schema_name, object_name
@@ -273,6 +397,45 @@ async function handleListSchemaObjects(req, res, requestUrl) {
   );
 
   return json(res, 200, { items: result.rows });
+}
+
+async function handlePatchSchemaObject(req, res, schemaObjectId) {
+  if (!isUuid(schemaObjectId)) {
+    return badRequest(res, "schemaObjectId must be a valid UUID");
+  }
+
+  const body = await readJsonBody(req);
+  if (!Object.prototype.hasOwnProperty.call(body, "is_ignored")) {
+    return badRequest(res, "is_ignored is required");
+  }
+  if (typeof body.is_ignored !== "boolean") {
+    return badRequest(res, "is_ignored must be a boolean");
+  }
+
+  const result = await appDb.query(
+    `
+      UPDATE schema_objects
+      SET is_ignored = $2
+      WHERE id = $1
+      RETURNING
+        id,
+        data_source_id,
+        object_type,
+        schema_name,
+        object_name,
+        description,
+        is_ignored
+    `,
+    [schemaObjectId, body.is_ignored]
+  );
+
+  if (result.rowCount === 0) {
+    return json(res, 404, { error: "not_found", message: "Schema object not found" });
+  }
+
+  triggerRagReindexAsync(result.rows[0].data_source_id);
+
+  return json(res, 200, result.rows[0]);
 }
 
 async function handleListRagNotes(_req, res, requestUrl) {
@@ -712,7 +875,9 @@ async function handleRunSession(req, res, sessionId) {
     `
       SELECT id, schema_name, object_name, object_type
       FROM schema_objects
-      WHERE data_source_id = $1 AND object_type IN ('table', 'view', 'materialized_view')
+      WHERE data_source_id = $1
+        AND is_ignored = FALSE
+        AND object_type IN ('table', 'view', 'materialized_view')
       ORDER BY schema_name, object_name
     `,
     [session.data_source_id]
@@ -728,6 +893,7 @@ async function handleRunSession(req, res, sessionId) {
       FROM columns c
       JOIN schema_objects so ON so.id = c.schema_object_id
       WHERE so.data_source_id = $1
+        AND so.is_ignored = FALSE
       ORDER BY so.schema_name, so.object_name, c.ordinal_position
     `,
     [session.data_source_id]
@@ -1090,6 +1256,7 @@ async function handleFeedback(req, res, sessionId) {
         SELECT schema_name, object_name
         FROM schema_objects
         WHERE data_source_id = $1
+          AND is_ignored = FALSE
       `,
       [session.data_source_id]
     );
@@ -1456,6 +1623,10 @@ async function routeRequest(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/") {
+    if (serveFrontendIndex(res)) {
+      return;
+    }
+
     return json(res, 200, {
       service: "report-pilot",
       status: "running",
@@ -1469,6 +1640,10 @@ async function routeRequest(req, res) {
 
   if (req.method === "GET" && pathname === "/openapi.yaml") {
     return serveOpenApiSpec(res);
+  }
+
+  if (req.method === "GET" && serveFrontendAsset(res, pathname)) {
+    return;
   }
 
   if (req.method === "POST" && pathname === "/v1/data-sources") {
@@ -1489,8 +1664,18 @@ async function routeRequest(req, res) {
     return handleIntrospect(req, res, introspectMatch[1]);
   }
 
+  const importSchemaMatch = pathname.match(/^\/v1\/data-sources\/([^/]+)\/import-schema$/);
+  if (req.method === "POST" && importSchemaMatch) {
+    return handleImportSchema(req, res, importSchemaMatch[1]);
+  }
+
   if (req.method === "GET" && pathname === "/v1/schema-objects") {
     return handleListSchemaObjects(req, res, requestUrl);
+  }
+
+  const schemaObjectMatch = pathname.match(/^\/v1\/schema-objects\/([^/]+)$/);
+  if (req.method === "PATCH" && schemaObjectMatch) {
+    return handlePatchSchemaObject(req, res, schemaObjectMatch[1]);
   }
 
   if (req.method === "POST" && pathname === "/v1/semantic-entities") {
@@ -1587,6 +1772,10 @@ async function routeRequest(req, res) {
     return handleRagReindex(req, res, requestUrl);
   }
 
+  if (shouldServeFrontendApp(req, pathname)) {
+    return serveFrontendIndex(res);
+  }
+
   return notFound(res);
 }
 
@@ -1601,7 +1790,7 @@ function startServer() {
     const origin = req.headers.origin || "*";
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-id");
     res.setHeader("Vary", "Origin");
 
