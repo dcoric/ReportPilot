@@ -5,6 +5,7 @@ const { OpenAiAdapter } = require("../adapters/llm/openAiAdapter");
 const { GeminiAdapter } = require("../adapters/llm/geminiAdapter");
 const { DeepSeekAdapter } = require("../adapters/llm/deepSeekAdapter");
 const { OpenRouterAdapter } = require("../adapters/llm/openRouterAdapter");
+const { CustomAdapter } = require("../adapters/llm/customAdapter");
 const { resolveApiKey } = require("../adapters/llm/httpClient");
 
 const DEFAULT_PROVIDER_ORDER = ["openai", "gemini", "deepseek", "openrouter"];
@@ -235,6 +236,13 @@ function buildAdapter(provider, providerConfig, requestedModel) {
   if (provider === "openrouter") {
     return new OpenRouterAdapter(opts);
   }
+  if (providerConfig?.base_url) {
+    return new CustomAdapter({
+      ...opts,
+      provider,
+      baseUrl: providerConfig.base_url
+    });
+  }
   throw new Error(`Unsupported provider: ${provider}`);
 }
 
@@ -251,13 +259,13 @@ function resolveProviderApiKey(provider, ref) {
   if (provider === "openrouter") {
     return resolveApiKey(ref, "OPENROUTER_API_KEY");
   }
-  return "";
+  return resolveApiKey(ref, null);
 }
 
 async function loadProviderConfigs() {
   const result = await appDb.query(
     `
-      SELECT provider, api_key_ref, default_model, enabled
+      SELECT provider, api_key_ref, default_model, base_url, display_name, enabled
       FROM llm_providers
     `
   );

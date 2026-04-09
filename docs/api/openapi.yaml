@@ -792,7 +792,6 @@ components:
       properties:
         llm_provider:
           type: string
-          enum: [openai, gemini, deepseek, openrouter]
         model:
           type: string
         sql_override:
@@ -1041,18 +1040,25 @@ components:
       properties:
         provider:
           type: string
-          enum: [openai, gemini, deepseek, openrouter]
         api_key_ref:
           type: string
         default_model:
           type: string
+        base_url:
+          type: string
+        display_name:
+          type: string
         enabled:
           type: boolean
-      required: [provider, api_key_ref, default_model, enabled]
+      required: [provider, default_model, enabled]
     LlmProviderResponse:
       type: object
       properties:
         provider:
+          type: string
+        base_url:
+          type: string
+        display_name:
           type: string
         enabled:
           type: boolean
@@ -1069,8 +1075,11 @@ components:
                 type: string
               provider:
                 type: string
-                enum: [openai, gemini, deepseek, openrouter]
               default_model:
+                type: string
+              base_url:
+                type: string
+              display_name:
                 type: string
               enabled:
                 type: boolean
@@ -1089,12 +1098,10 @@ components:
           type: string
         primary_provider:
           type: string
-          enum: [openai, gemini, deepseek, openrouter]
         fallback_providers:
           type: array
           items:
             type: string
-            enum: [openai, gemini, deepseek, openrouter]
         strategy:
           type: string
           enum: [ordered_fallback, cost_optimized, latency_optimized]

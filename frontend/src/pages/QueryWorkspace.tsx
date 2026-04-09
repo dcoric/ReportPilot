@@ -38,6 +38,8 @@ interface LlmProvider {
     id: string;
     provider: string;
     default_model: string;
+    base_url?: string;
+    display_name?: string;
     enabled: boolean;
 }
 
@@ -45,6 +47,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
     openai: 'OpenAI',
     gemini: 'Google Gemini',
     deepseek: 'DeepSeek',
+    openrouter: 'OpenRouter',
 };
 
 type TabType = 'results' | 'metadata' | 'citations' | 'query-plan';
@@ -115,10 +118,6 @@ const parseRunErrorPayload = (error: unknown): RunErrorPayload | null => {
     };
 };
 
-const isRunProvider = (value: string): value is RunProvider => (
-    value === 'openai' || value === 'gemini' || value === 'deepseek'
-);
-
 export const QueryWorkspace: React.FC = () => {
     // --- State ---
     const { dataSources, selectedDataSourceId } = useDataSource();
@@ -168,6 +167,10 @@ export const QueryWorkspace: React.FC = () => {
         width: 620,
         panelMaxHeight: 420,
     });
+
+    const isValidProvider = (value: string): value is RunProvider => (
+        llmProviders.some((entry) => entry.provider === value)
+    );
 
     // --- Effects ---
     useEffect(() => {
@@ -381,11 +384,11 @@ export const QueryWorkspace: React.FC = () => {
     const generateSql = async (sessId: string, sqlOverride?: string) => {
         const { data, error } = await client.POST('/v1/query/sessions/{sessionId}/run', {
             params: { path: { sessionId: sessId } },
-            body: {
-                llm_provider: isRunProvider(provider) ? provider : undefined,
-                model: model || undefined,
-                no_execute: isDryRun || undefined,
-                max_rows: maxRows,
+                body: {
+                    llm_provider: isValidProvider(provider) ? provider : undefined,
+                    model: model || undefined,
+                    no_execute: isDryRun || undefined,
+                    max_rows: maxRows,
                 timeout_ms: Math.max(1000, Math.round(timeout * 1000)),
                 ...(sqlOverride ? { sql_override: sqlOverride } : {}),
             }
@@ -418,7 +421,7 @@ export const QueryWorkspace: React.FC = () => {
             const { data, error } = await client.POST('/v1/query/sessions/{sessionId}/run', {
                 params: { path: { sessionId } },
                 body: {
-                    llm_provider: isRunProvider(provider) ? provider : undefined,
+                    llm_provider: isValidProvider(provider) ? provider : undefined,
                     model: model || undefined,
                     sql_override: sqlOverride,
                     no_execute: isDryRun || undefined,
@@ -615,7 +618,7 @@ export const QueryWorkspace: React.FC = () => {
                                             )}
                                             {llmProviders.map(p => (
                                                 <option key={p.provider} value={p.provider}>
-                                                    {PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}
+                                                    {p.display_name || PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}
                                                 </option>
                                             ))}
                                         </select>

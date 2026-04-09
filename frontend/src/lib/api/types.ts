@@ -551,6 +551,120 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/data-sources/{dataSourceId}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a data source configuration snapshot as a JSON file
+         * @description Returns a downloadable JSON file containing the full configuration for the specified data source — schema objects (with columns, relationships, indexes), semantic entities (with metric definitions), join policies, RAG notes, NL/SQL examples, and synonyms. The file can be re-imported via `POST /v1/data-sources/import`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dataSourceId: components["parameters"]["DataSourceId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Export file download */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DataSourceExport"];
+                    };
+                };
+                /** @description Invalid data source ID */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Data source not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/data-sources/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a data source from a previously exported JSON snapshot
+         * @description Creates a new data source and all associated metadata (schema objects, semantic entities, join policies, RAG notes, NL/SQL examples, synonyms) from a JSON export file in a single atomic transaction. Triggers a RAG reindex on success.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DataSourceExport"];
+                };
+            };
+            responses: {
+                /** @description Data source imported successfully */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                            /** Format: uuid */
+                            data_source_id: string;
+                        };
+                    };
+                };
+                /** @description Validation error in export payload */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/schema-objects": {
         parameters: {
             query?: never;
@@ -1264,8 +1378,7 @@ export interface components {
             status: "created";
         };
         RunSessionRequest: {
-            /** @enum {string} */
-            llm_provider?: "openai" | "gemini" | "deepseek";
+            llm_provider?: string;
             model?: string;
             /** @description Optional SQL to execute directly, skipping LLM generation. */
             sql_override?: string;
@@ -1388,22 +1501,26 @@ export interface components {
             items: components["schemas"]["RagNoteResponse"][];
         };
         LlmProviderRequest: {
-            /** @enum {string} */
-            provider: "openai" | "gemini" | "deepseek";
-            api_key_ref: string;
+            provider: string;
+            api_key_ref?: string;
             default_model: string;
+            base_url?: string;
+            display_name?: string;
             enabled: boolean;
         };
         LlmProviderResponse: {
             provider: string;
+            base_url?: string;
+            display_name?: string;
             enabled: boolean;
         };
         LlmProviderListResponse: {
             items: {
                 id: string;
-                /** @enum {string} */
-                provider: "openai" | "gemini" | "deepseek";
+                provider: string;
                 default_model: string;
+                base_url?: string;
+                display_name?: string;
                 enabled: boolean;
                 /** Format: date-time */
                 created_at: string;
@@ -1413,9 +1530,8 @@ export interface components {
         };
         RoutingRuleRequest: {
             data_source_id: string;
-            /** @enum {string} */
-            primary_provider: "openai" | "gemini" | "deepseek";
-            fallback_providers: ("openai" | "gemini" | "deepseek")[];
+            primary_provider: string;
+            fallback_providers: string[];
             /** @enum {string} */
             strategy: "ordered_fallback" | "cost_optimized" | "latency_optimized";
         };
@@ -1477,6 +1593,86 @@ export interface components {
         ImportSchemaResponse: {
             ok: boolean;
             object_count: number;
+        };
+        /** @description Portable snapshot of a data source and all its associated configuration. Produced by GET /v1/data-sources/{id}/export and consumed by POST /v1/data-sources/import. */
+        DataSourceExport: {
+            /** @example 1 */
+            version: number;
+            /** Format: date-time */
+            exported_at?: string;
+            data_source: {
+                name: string;
+                /** @enum {string} */
+                db_type: "postgres" | "mssql";
+                connection_ref: string;
+            };
+            schema_objects?: {
+                /** @enum {string} */
+                object_type: "table" | "view" | "materialized_view";
+                schema_name: string;
+                object_name: string;
+                description?: string | null;
+                is_ignored?: boolean;
+                columns?: {
+                    column_name: string;
+                    data_type: string;
+                    nullable: boolean;
+                    is_pk: boolean;
+                    ordinal_position: number;
+                }[];
+                relationships?: {
+                    from_column: string;
+                    to_schema: string;
+                    to_object: string;
+                    to_column: string;
+                    /** @enum {string} */
+                    relationship_type: "fk" | "inferred";
+                }[];
+                indexes?: {
+                    index_name: string;
+                    columns: string[];
+                    is_unique: boolean;
+                }[];
+            }[];
+            rag_notes?: {
+                title: string;
+                content: string;
+                active?: boolean;
+            }[];
+            semantic_entities?: {
+                /** @enum {string} */
+                entity_type: "table" | "column" | "metric" | "dimension" | "rule";
+                target_ref: string;
+                business_name: string;
+                description?: string | null;
+                owner?: string | null;
+                active?: boolean;
+                metric_definitions?: {
+                    sql_expression: string;
+                    grain?: string | null;
+                    filters_json?: string | null;
+                }[];
+            }[];
+            join_policies?: {
+                left_ref: string;
+                right_ref: string;
+                join_type: string;
+                on_clause: string;
+                approved?: boolean;
+                notes?: string | null;
+            }[];
+            nl_sql_examples?: {
+                question: string;
+                sql: string;
+                quality_score?: number | null;
+                /** @enum {string} */
+                source?: "manual" | "feedback";
+            }[];
+            synonyms?: {
+                term: string;
+                maps_to_ref: string;
+                weight?: number | null;
+            }[];
         };
         ExportDeliveryStatus: {
             id: string;

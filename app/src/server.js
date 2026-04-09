@@ -25,6 +25,8 @@ const { createDelivery, getDeliveryStatus } = require("./services/deliveryServic
 const { OpenAiAdapter } = require("./adapters/llm/openAiAdapter");
 const { GeminiAdapter } = require("./adapters/llm/geminiAdapter");
 const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
+const { OpenRouterAdapter } = require("./adapters/llm/openRouterAdapter");
+const { CustomAdapter } = require("./adapters/llm/customAdapter");
 const { resolveApiKey } = require("./adapters/llm/httpClient");
 const { createRequestId, logEvent } = require("./lib/observability");
 const { json, notFound, badRequest, internalError, readJsonBody } = require("./lib/http");
@@ -1409,7 +1411,10 @@ async function handleRunSession(req, res, sessionId) {
   const timeoutMs = clamp(Number(body.timeout_ms || 20000), 1000, 120000);
 
   if (requestedProvider && !LLM_PROVIDERS.has(requestedProvider)) {
-    return badRequest(res, "Unsupported llm_provider");
+    const providerResult = await appDb.query("SELECT 1 FROM llm_providers WHERE provider = $1", [requestedProvider]);
+    if (providerResult.rowCount === 0) {
+      return badRequest(res, "Unsupported llm_provider");
+    }
   }
 
   const sessionResult = await appDb.query(
@@ -1968,7 +1973,7 @@ async function handleExportStatus(_req, res, exportId) {
 
 async function handleProviderList(_req, res) {
   const result = await appDb.query(
-    `SELECT id, provider, default_model, enabled, created_at, updated_at
+    `SELECT id, provider, default_model, base_url, display_name, enabled, created_at, updated_at
      FROM llm_providers
      ORDER BY provider`
   );
@@ -1977,28 +1982,63 @@ async function handleProviderList(_req, res) {
 
 async function handleProviderUpsert(req, res) {
   const body = await readJsonBody(req);
-  const { provider, api_key_ref: apiKeyRef, default_model: defaultModel, enabled } = body;
-  if (!provider || !apiKeyRef || !defaultModel || typeof enabled !== "boolean") {
-    return badRequest(res, "provider, api_key_ref, default_model, enabled are required");
+  const provider = typeof body.provider === "string" ? body.provider.trim() : "";
+  const requestedApiKeyRef = typeof body.api_key_ref === "string" ? body.api_key_ref.trim() : "";
+  const defaultModel = typeof body.default_model === "string" ? body.default_model.trim() : "";
+  const requestedBaseUrl = typeof body.base_url === "string" && body.base_url.trim() ? body.base_url.trim() : null;
+  const requestedDisplayName =
+    typeof body.display_name === "string" && body.display_name.trim() ? body.display_name.trim() : null;
+  const { enabled } = body;
+
+  if (!provider || !defaultModel || typeof enabled !== "boolean") {
+    return badRequest(res, "provider, default_model, enabled are required");
   }
 
-  if (!LLM_PROVIDERS.has(provider)) {
+  const existingResult = await appDb.query(
+    `
+      SELECT api_key_ref, base_url, display_name
+      FROM llm_providers
+      WHERE provider = $1
+    `,
+    [provider]
+  );
+  const existingProvider = existingResult.rows[0] || null;
+  const apiKeyRef = requestedApiKeyRef || existingProvider?.api_key_ref || "";
+
+  if (!apiKeyRef) {
+    return badRequest(res, "api_key_ref is required");
+  }
+
+  const isKnown = LLM_PROVIDERS.has(provider);
+  const baseUrl = isKnown ? null : requestedBaseUrl || existingProvider?.base_url || null;
+  const displayName = isKnown ? null : requestedDisplayName || existingProvider?.display_name || null;
+  const isCustom = !isKnown && Boolean(baseUrl);
+
+  if (!isKnown && !isCustom) {
     return badRequest(res, "Invalid provider");
+  }
+  if (requestedBaseUrl && isKnown) {
+    return badRequest(res, "base_url is only allowed for custom providers");
+  }
+  if (isCustom && !/^https?:\/\/.+/.test(baseUrl)) {
+    return badRequest(res, "Invalid base_url");
   }
 
   const result = await appDb.query(
     `
-      INSERT INTO llm_providers (provider, api_key_ref, default_model, enabled, updated_at)
-      VALUES ($1, $2, $3, $4, NOW())
+      INSERT INTO llm_providers (provider, api_key_ref, default_model, base_url, display_name, enabled, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
       ON CONFLICT (provider)
       DO UPDATE SET
         api_key_ref = EXCLUDED.api_key_ref,
         default_model = EXCLUDED.default_model,
+        base_url = EXCLUDED.base_url,
+        display_name = EXCLUDED.display_name,
         enabled = EXCLUDED.enabled,
         updated_at = NOW()
-      RETURNING provider, enabled
+      RETURNING provider, base_url, display_name, enabled
     `,
-    [provider, apiKeyRef, defaultModel, enabled]
+    [provider, apiKeyRef, defaultModel, baseUrl, displayName, enabled]
   );
 
   return json(res, 200, result.rows[0]);
@@ -2017,7 +2057,9 @@ async function handleRoutingRuleUpsert(req, res) {
     return badRequest(res, "data_source_id, primary_provider, fallback_providers, strategy are required");
   }
 
-  if (!LLM_PROVIDERS.has(primaryProvider)) {
+  const supportedProviders = await loadSupportedProviderSet();
+
+  if (!supportedProviders.has(primaryProvider)) {
     return badRequest(res, "Invalid primary_provider");
   }
 
@@ -2025,7 +2067,7 @@ async function handleRoutingRuleUpsert(req, res) {
     return badRequest(res, "Invalid strategy");
   }
 
-  const invalidFallback = fallbackProviders.find((provider) => !LLM_PROVIDERS.has(provider));
+  const invalidFallback = fallbackProviders.find((provider) => !supportedProviders.has(provider));
   if (invalidFallback) {
     return badRequest(res, `Invalid fallback provider: ${invalidFallback}`);
   }
@@ -2061,7 +2103,7 @@ async function handleRoutingRuleUpsert(req, res) {
 async function handleProviderHealth(_req, res) {
   const result = await appDb.query(
     `
-      SELECT provider, api_key_ref, default_model, enabled
+      SELECT provider, api_key_ref, default_model, base_url, enabled
       FROM llm_providers
       ORDER BY provider
     `
@@ -2081,7 +2123,7 @@ async function handleProviderHealth(_req, res) {
     }
 
     try {
-      const adapter = buildHealthAdapter(row.provider, row.api_key_ref, row.default_model);
+      const adapter = buildHealthAdapter(row.provider, row.api_key_ref, row.default_model, row.base_url);
       await adapter.healthCheck();
       items.push({
         provider: row.provider,
@@ -2179,7 +2221,7 @@ async function handleRagReindex(req, res, requestUrl) {
   });
 }
 
-function buildHealthAdapter(provider, apiKeyRef, defaultModel) {
+function buildHealthAdapter(provider, apiKeyRef, defaultModel, baseUrl) {
   if (provider === "openai") {
     return new OpenAiAdapter({
       apiKey: resolveApiKey(apiKeyRef, "OPENAI_API_KEY"),
@@ -2198,7 +2240,32 @@ function buildHealthAdapter(provider, apiKeyRef, defaultModel) {
       defaultModel
     });
   }
+  if (provider === "openrouter") {
+    return new OpenRouterAdapter({
+      apiKey: resolveApiKey(apiKeyRef, "OPENROUTER_API_KEY"),
+      defaultModel
+    });
+  }
+  if (baseUrl) {
+    return new CustomAdapter({
+      provider,
+      apiKey: resolveApiKey(apiKeyRef, null),
+      defaultModel,
+      baseUrl
+    });
+  }
   throw new Error(`Unsupported provider: ${provider}`);
+}
+
+async function loadSupportedProviderSet() {
+  const result = await appDb.query("SELECT provider FROM llm_providers");
+  const providers = new Set(LLM_PROVIDERS);
+  for (const row of result.rows) {
+    if (row.provider) {
+      providers.add(row.provider);
+    }
+  }
+  return providers;
 }
 
 async function routeRequest(req, res) {

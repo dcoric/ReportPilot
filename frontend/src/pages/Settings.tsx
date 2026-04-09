@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Network, Save, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { client } from '../lib/api/client';
+import type { components } from '../lib/api/types';
 
-type ProviderType = 'openai' | 'gemini' | 'deepseek';
 type RoutingStrategy = 'ordered_fallback' | 'cost_optimized' | 'latency_optimized';
+type ProviderType = components['schemas']['RoutingRuleRequest']['primary_provider'];
 
 interface RoutingRule {
     data_source_id: string;
@@ -16,6 +17,7 @@ interface RoutingRule {
 interface LlmProvider {
     provider: string;
     default_model: string;
+    display_name?: string;
     enabled: boolean;
 }
 
@@ -29,6 +31,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
     openai: 'OpenAI',
     gemini: 'Google Gemini',
     deepseek: 'DeepSeek',
+    openrouter: 'OpenRouter',
 };
 
 export const Settings: React.FC = () => {
@@ -137,7 +140,7 @@ export const Settings: React.FC = () => {
                                         onChange={(e) => handleRoutingChange(ds.id, 'primary_provider', e.target.value as ProviderType)}
                                     >
                                         {enabledProviders.map(p => (
-                                            <option key={p.provider} value={p.provider}>{PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}</option>
+                                            <option key={p.provider} value={p.provider}>{p.display_name || PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -165,7 +168,7 @@ export const Settings: React.FC = () => {
                                     >
                                         <option value="">None</option>
                                         {enabledProviders.filter(p => p.provider !== rule.primary_provider).map(p => (
-                                            <option key={p.provider} value={p.provider}>{PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}</option>
+                                            <option key={p.provider} value={p.provider}>{p.display_name || PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}</option>
                                         ))}
                                     </select>
                                 </div>
