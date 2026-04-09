@@ -35,3 +35,4 @@ Thumbs.db
 docker-compose.override.yml
 server.log
 server_verified.log
+.claude/worktrees/
