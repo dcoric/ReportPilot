@@ -9,6 +9,8 @@ interface LlmProvider {
     id: string;
     provider: string;
     default_model: string;
+    base_url?: string;
+    display_name?: string;
     enabled: boolean;
     created_at: string;
     updated_at: string;
@@ -25,6 +27,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
     openai: 'OpenAI',
     gemini: 'Google Gemini',
     deepseek: 'DeepSeek',
+    openrouter: 'OpenRouter',
 };
 
 export const LLMProviders: React.FC = () => {
@@ -68,9 +71,10 @@ export const LLMProviders: React.FC = () => {
         try {
             const { error } = await client.POST('/v1/llm/providers', {
                 body: {
-                    provider: p.provider as 'openai' | 'gemini' | 'deepseek',
-                    api_key_ref: 'existing-key',
+                    provider: p.provider,
                     default_model: p.default_model,
+                    base_url: p.base_url,
+                    display_name: p.display_name,
                     enabled: !p.enabled,
                 },
             });
@@ -164,11 +168,18 @@ export const LLMProviders: React.FC = () => {
                     ) : (
                         providers.map((p) => (
                             <div key={p.id} className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 hover:bg-gray-50 transition items-center">
-                                <div className="col-span-3 flex items-center gap-3 font-medium text-gray-900">
+                                <div className="col-span-3 flex items-center gap-3 min-w-0">
                                     <div className={`w-8 h-8 rounded flex items-center justify-center ${p.enabled ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'}`}>
                                         <Server size={16} />
                                     </div>
-                                    {PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}
+                                    <div className="min-w-0">
+                                        <div className="font-medium text-gray-900 truncate">
+                                            {p.display_name || PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}
+                                        </div>
+                                        {p.base_url && (
+                                            <div className="text-xs text-gray-500 truncate">{p.base_url}</div>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="col-span-2 flex items-center text-gray-600 text-sm">
                                     <span className="bg-gray-100 px-2 py-1 rounded font-mono text-xs">{p.default_model}</span>
