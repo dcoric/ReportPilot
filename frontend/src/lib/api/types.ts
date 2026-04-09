@@ -1072,7 +1072,14 @@ export interface paths {
             };
         };
         put?: never;
-        /** Register or update an LLM provider config */
+        /**
+         * Register or update an LLM provider config
+         * @description Creates or updates a provider configuration.
+         *
+         *     `api_key_ref` is write-only and is never returned in API responses. When updating an existing
+         *     provider, omit `api_key_ref` to preserve the current stored key or reference. Send a new
+         *     non-empty value to rotate the key.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -1500,20 +1507,30 @@ export interface components {
         RagNoteListResponse: {
             items: components["schemas"]["RagNoteResponse"][];
         };
+        /**
+         * @description Provider configuration payload.
+         *
+         *     `api_key_ref` accepts either a literal API key or a reference such as `env:OPENAI_API_KEY`.
+         *     It is write-only and never appears in API responses. Omitting `api_key_ref` during an update
+         *     preserves the existing stored value; sending an empty string is invalid.
+         */
         LlmProviderRequest: {
             provider: string;
+            /** @description Write-only API key or reference such as `sk-...` or `env:OPENAI_API_KEY`. */
             api_key_ref?: string;
             default_model: string;
             base_url?: string;
             display_name?: string;
             enabled: boolean;
         };
+        /** @description Provider configuration response. Secrets and key references are never returned. */
         LlmProviderResponse: {
             provider: string;
             base_url?: string;
             display_name?: string;
             enabled: boolean;
         };
+        /** @description Configured provider records without API key material. */
         LlmProviderListResponse: {
             items: {
                 id: string;

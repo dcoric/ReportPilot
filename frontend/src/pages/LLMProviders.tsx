@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Server, RefreshCw, Power, PowerOff } from 'lucide-react';
+import { Plus, Server, RefreshCw, Power, PowerOff, Key } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { client } from '../lib/api/client';
 import { AddProviderDialog } from '../components/Providers/AddProviderDialog';
+import { EditProviderApiKeyDialog } from '../components/Providers/EditProviderApiKeyDialog';
 
 interface LlmProvider {
     id: string;
@@ -35,7 +36,11 @@ export const LLMProviders: React.FC = () => {
     const [healthMap, setHealthMap] = useState<Record<string, ProviderHealth>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+    const [apiKeyDialogProvider, setApiKeyDialogProvider] = useState<LlmProvider | null>(null);
     const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
+
+    const getProviderLabel = (provider: LlmProvider) =>
+        provider.display_name || PROVIDER_DISPLAY_NAMES[provider.provider] || provider.provider;
 
     const fetchProviders = async () => {
         setIsLoading(true);
@@ -80,9 +85,9 @@ export const LLMProviders: React.FC = () => {
             });
 
             if (error) {
-                toast.error(`Failed to update ${PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}`);
+                toast.error(`Failed to update ${getProviderLabel(p)}`);
             } else {
-                toast.success(`${PROVIDER_DISPLAY_NAMES[p.provider] || p.provider} ${!p.enabled ? 'enabled' : 'disabled'}`);
+                toast.success(`${getProviderLabel(p)} ${!p.enabled ? 'enabled' : 'disabled'}`);
                 fetchProviders();
             }
         } catch (error) {
@@ -174,7 +179,7 @@ export const LLMProviders: React.FC = () => {
                                     </div>
                                     <div className="min-w-0">
                                         <div className="font-medium text-gray-900 truncate">
-                                            {p.display_name || PROVIDER_DISPLAY_NAMES[p.provider] || p.provider}
+                                            {getProviderLabel(p)}
                                         </div>
                                         {p.base_url && (
                                             <div className="text-xs text-gray-500 truncate">{p.base_url}</div>
@@ -199,6 +204,16 @@ export const LLMProviders: React.FC = () => {
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
+                                            setApiKeyDialogProvider(p);
+                                        }}
+                                        className="text-gray-500 hover:text-blue-600"
+                                        title="Edit API key"
+                                    >
+                                        <Key size={16} />
+                                    </button>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             handleToggleEnabled(p);
                                         }}
                                         disabled={togglingIds.has(p.id)}
@@ -218,6 +233,15 @@ export const LLMProviders: React.FC = () => {
                 isOpen={isAddDialogOpen}
                 onClose={() => setIsAddDialogOpen(false)}
                 onSuccess={fetchProviders}
+            />
+            <EditProviderApiKeyDialog
+                isOpen={Boolean(apiKeyDialogProvider)}
+                provider={apiKeyDialogProvider}
+                providerLabel={apiKeyDialogProvider ? getProviderLabel(apiKeyDialogProvider) : ''}
+                onClose={() => setApiKeyDialogProvider(null)}
+                onSuccess={async () => {
+                    await Promise.all([fetchProviders(), fetchHealth()]);
+                }}
             />
         </div>
     );

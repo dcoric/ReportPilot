@@ -28,6 +28,7 @@ const { DeepSeekAdapter } = require("./adapters/llm/deepSeekAdapter");
 const { OpenRouterAdapter } = require("./adapters/llm/openRouterAdapter");
 const { CustomAdapter } = require("./adapters/llm/customAdapter");
 const { resolveApiKey } = require("./adapters/llm/httpClient");
+const { normalizeProviderUpsertInput } = require("./services/providerConfigService");
 const { createRequestId, logEvent } = require("./lib/observability");
 const { json, notFound, badRequest, internalError, readJsonBody } = require("./lib/http");
 
@@ -1983,16 +1984,6 @@ async function handleProviderList(_req, res) {
 async function handleProviderUpsert(req, res) {
   const body = await readJsonBody(req);
   const provider = typeof body.provider === "string" ? body.provider.trim() : "";
-  const requestedApiKeyRef = typeof body.api_key_ref === "string" ? body.api_key_ref.trim() : "";
-  const defaultModel = typeof body.default_model === "string" ? body.default_model.trim() : "";
-  const requestedBaseUrl = typeof body.base_url === "string" && body.base_url.trim() ? body.base_url.trim() : null;
-  const requestedDisplayName =
-    typeof body.display_name === "string" && body.display_name.trim() ? body.display_name.trim() : null;
-  const { enabled } = body;
-
-  if (!provider || !defaultModel || typeof enabled !== "boolean") {
-    return badRequest(res, "provider, default_model, enabled are required");
-  }
 
   const existingResult = await appDb.query(
     `
@@ -2003,26 +1994,7 @@ async function handleProviderUpsert(req, res) {
     [provider]
   );
   const existingProvider = existingResult.rows[0] || null;
-  const apiKeyRef = requestedApiKeyRef || existingProvider?.api_key_ref || "";
-
-  if (!apiKeyRef) {
-    return badRequest(res, "api_key_ref is required");
-  }
-
-  const isKnown = LLM_PROVIDERS.has(provider);
-  const baseUrl = isKnown ? null : requestedBaseUrl || existingProvider?.base_url || null;
-  const displayName = isKnown ? null : requestedDisplayName || existingProvider?.display_name || null;
-  const isCustom = !isKnown && Boolean(baseUrl);
-
-  if (!isKnown && !isCustom) {
-    return badRequest(res, "Invalid provider");
-  }
-  if (requestedBaseUrl && isKnown) {
-    return badRequest(res, "base_url is only allowed for custom providers");
-  }
-  if (isCustom && !/^https?:\/\/.+/.test(baseUrl)) {
-    return badRequest(res, "Invalid base_url");
-  }
+  const normalized = normalizeProviderUpsertInput(body, existingProvider, LLM_PROVIDERS);
 
   const result = await appDb.query(
     `
@@ -2038,7 +2010,14 @@ async function handleProviderUpsert(req, res) {
         updated_at = NOW()
       RETURNING provider, base_url, display_name, enabled
     `,
-    [provider, apiKeyRef, defaultModel, baseUrl, displayName, enabled]
+    [
+      normalized.provider,
+      normalized.apiKeyRef,
+      normalized.defaultModel,
+      normalized.baseUrl,
+      normalized.displayName,
+      normalized.enabled
+    ]
   );
 
   return json(res, 200, result.rows[0]);
