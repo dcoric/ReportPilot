@@ -52,6 +52,18 @@ async function reindexRagDocuments(dataSourceId) {
   };
 }
 
+function triggerRagReindexAsync(dataSourceId) {
+  if (!dataSourceId) {
+    return;
+  }
+
+  setImmediate(() => {
+    module.exports.reindexRagDocuments(dataSourceId).catch((err) => {
+      console.error(`[rag] reindex failed for ${dataSourceId}: ${err.message}`);
+    });
+  });
+}
+
 async function buildRagDocuments(dataSourceId) {
   const [
     schemaObjectsResult,
@@ -301,6 +313,7 @@ function sha256(content) {
 
 module.exports = {
   reindexRagDocuments,
+  triggerRagReindexAsync,
   __private: {
     buildRagDocuments
   }

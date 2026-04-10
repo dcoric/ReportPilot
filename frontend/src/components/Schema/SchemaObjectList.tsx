@@ -38,7 +38,7 @@ export const SchemaObjectList: React.FC<SchemaObjectListProps> = ({ objects, fil
             return;
         }
 
-        const nextIgnoredState = !Boolean(obj.is_ignored);
+        const nextIgnoredState = !obj.is_ignored;
         setPendingIds((prev) => new Set(prev).add(obj.id));
         setLocalObjects((prev) => prev.map((item) => (
             item.id === obj.id ? { ...item, is_ignored: nextIgnoredState } : item
@@ -62,7 +62,7 @@ export const SchemaObjectList: React.FC<SchemaObjectListProps> = ({ objects, fil
         } catch (error) {
             console.error(error);
             setLocalObjects((prev) => prev.map((item) => (
-                item.id === obj.id ? { ...item, is_ignored: Boolean(obj.is_ignored) } : item
+                item.id === obj.id ? { ...item, is_ignored: obj.is_ignored } : item
             )));
             toast.error('Failed to update schema object visibility');
         } finally {
