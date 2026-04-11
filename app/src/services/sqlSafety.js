@@ -182,5 +182,6 @@ function validateAndNormalizeSql(rawSql, opts = {}) {
 
 module.exports = {
   validateAndNormalizeSql,
-  sanitizeGeneratedSql
+  sanitizeGeneratedSql,
+  ensureLimit
 };

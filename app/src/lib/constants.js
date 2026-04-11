@@ -16,6 +16,9 @@ const RAG_NOTE_CONTENT_MAX_LENGTH = 20000;
 const SAVED_QUERY_NAME_MAX_LENGTH = 200;
 const SAVED_QUERY_DESCRIPTION_MAX_LENGTH = 1000;
 const SAVED_QUERY_DEFAULT_RUN_PARAM_KEYS = new Set(["llm_provider", "model", "max_rows", "timeout_ms", "no_execute"]);
+const PARAMETER_TYPES = new Set(["text", "integer", "decimal", "date", "boolean", "timestamp"]);
+const PARAMETER_NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
+const MAX_PARAMETER_COUNT = 50;
 const OPENAPI_SPEC_PATH = path.resolve(__dirname, "../../../docs/api/openapi.yaml");
 const FRONTEND_DIST_PATH = path.resolve(__dirname, "../../../frontend/dist");
 const FRONTEND_INDEX_PATH = path.join(FRONTEND_DIST_PATH, "index.html");
@@ -50,6 +53,9 @@ module.exports = {
   SAVED_QUERY_NAME_MAX_LENGTH,
   SAVED_QUERY_DESCRIPTION_MAX_LENGTH,
   SAVED_QUERY_DEFAULT_RUN_PARAM_KEYS,
+  PARAMETER_TYPES,
+  PARAMETER_NAME_PATTERN,
+  MAX_PARAMETER_COUNT,
   OPENAPI_SPEC_PATH,
   FRONTEND_DIST_PATH,
   FRONTEND_INDEX_PATH,

@@ -178,6 +178,93 @@ paths:
                   message:
                     type: string
                 required: [error, message]
+  /v1/saved-queries/{savedQueryId}/validate-params:
+    post:
+      tags: [Query]
+      summary: Validate saved query parameters
+      parameters:
+        - $ref: "#/components/parameters/SavedQueryId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateParamsRequest"
+      responses:
+        "200":
+          description: Parameter validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateParamsResponse"
+        "404":
+          description: Saved query not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                required: [error, message]
+  /v1/saved-queries/{savedQueryId}/run:
+    post:
+      tags: [Query]
+      summary: Run a saved query with parameters
+      parameters:
+        - $ref: "#/components/parameters/SavedQueryId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunSavedQueryRequest"
+      responses:
+        "200":
+          description: Saved query result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunSavedQueryResponse"
+        "400":
+          description: Invalid saved query parameters or SQL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                  errors:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            param:
+                              type: string
+                              nullable: true
+                            message:
+                              type: string
+                          required: [message]
+                        - type: string
+                required: [error, message]
+        "404":
+          description: Saved query not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                required: [error, message]
   /v1/query/sessions:
     post:
       tags: [Query]
@@ -918,6 +1005,24 @@ components:
           items:
             $ref: "#/components/schemas/PromptHistoryItem"
       required: [items]
+    QueryParameter:
+      type: object
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        type:
+          type: string
+          enum: [text, integer, decimal, date, boolean, timestamp]
+        required:
+          type: boolean
+        default: {}
+        allowed_values:
+          oneOf:
+            - type: "null"
+            - type: array
+              items: {}
+      required: [name, type, required, default, allowed_values]
     SavedQuery:
       type: object
       properties:
@@ -952,13 +1057,17 @@ components:
               maximum: 120000
             no_execute:
               type: boolean
+        parameter_schema:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryParameter"
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-      required: [id, owner_id, name, data_source_id, sql, default_run_params, created_at, updated_at]
+      required: [id, owner_id, name, data_source_id, sql, default_run_params, parameter_schema, created_at, updated_at]
     SavedQueryListResponse:
       type: object
       properties:
@@ -1006,6 +1115,10 @@ components:
               maximum: 120000
             no_execute:
               type: boolean
+        parameter_schema:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryParameter"
       required: [name, data_source_id, sql]
     UpdateSavedQueryRequest:
       type: object
@@ -1038,7 +1151,71 @@ components:
               maximum: 120000
             no_execute:
               type: boolean
+        parameter_schema:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryParameter"
       required: [name, data_source_id, sql]
+    ValidateParamsRequest:
+      type: object
+      properties:
+        params:
+          type: object
+          additionalProperties: true
+      required: [params]
+    ValidateParamsResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        resolved_values:
+          type: object
+          additionalProperties: true
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              param:
+                type: string
+                nullable: true
+              message:
+                type: string
+            required: [message]
+      required: [ok]
+    RunSavedQueryRequest:
+      type: object
+      properties:
+        params:
+          type: object
+          additionalProperties: true
+        max_rows:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        timeout_ms:
+          type: integer
+          minimum: 1000
+          maximum: 120000
+    RunSavedQueryResponse:
+      type: object
+      properties:
+        sql:
+          type: string
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        row_count:
+          type: integer
+        duration_ms:
+          type: integer
+      required: [sql, columns, rows, row_count, duration_ms]
     CreateSessionRequest:
       type: object
       properties:

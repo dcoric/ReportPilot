@@ -1,5 +1,6 @@
 const sql = require("mssql");
 const { validateAstReadOnly } = require("../services/sqlAstValidator");
+const { extractPlaceholders, replaceNamedPlaceholders } = require("../services/queryParameterParser");
 
 class MssqlAdapter {
   constructor(connectionString) {
@@ -197,11 +198,47 @@ class MssqlAdapter {
   }
 
   async executeReadOnly(sqlText, opts = {}) {
+    return this.executeWithRequest((request) => request.query(sqlText), opts);
+  }
+
+  async executeParameterizedReadOnly(sqlText, paramValues, paramSchema, opts = {}) {
+    const placeholders = extractPlaceholders(sqlText);
+    const schemaByName = new Map(
+      (Array.isArray(paramSchema) ? paramSchema : []).map((entry) => [entry.name, entry])
+    );
+    const usedNames = new Set();
+    const transformedSql = replaceNamedPlaceholders(sqlText, (name) => {
+      usedNames.add(name);
+      return `@${name}`;
+    });
+
+    return this.executeWithRequest((request) => {
+      for (const name of placeholders) {
+        if (usedNames.has(name) && !Object.prototype.hasOwnProperty.call(paramValues || {}, name)) {
+          throw new Error(`Missing parameter value for :${name}`);
+        }
+        if (!usedNames.has(name)) {
+          continue;
+        }
+        const type = schemaByName.get(name)?.type || "text";
+        request.input(name, getMssqlParameterType(type), convertMssqlParameterValue(type, paramValues[name]));
+      }
+      return request.query(transformedSql);
+    }, opts);
+  }
+
+  async executeWithRequest(runQuery, opts = {}) {
     const timeoutMs = Number(opts.timeoutMs || 20000);
     const maxRows = Number(opts.maxRows || 1000);
     const startedAt = Date.now();
 
-    const result = await this.query(sqlText, timeoutMs);
+    await this.poolConnect;
+    const request = this.pool.request();
+    if (Number.isFinite(timeoutMs)) {
+      request.timeout = timeoutMs;
+    }
+
+    const result = await runQuery(request);
     const rows = tables(result);
     const columns = extractColumns(result, rows);
     const truncated = rows.length > maxRows;
@@ -399,6 +436,38 @@ function parseIndexColumns(rawColumns) {
     .split(",")
     .map((part) => part.trim().replace(/[\[\]]/g, ""))
     .filter(Boolean);
+}
+
+function getMssqlParameterType(type) {
+  if (type === "integer") {
+    return sql.Int;
+  }
+  if (type === "decimal") {
+    return sql.Decimal(18, 6);
+  }
+  if (type === "date") {
+    return sql.Date;
+  }
+  if (type === "boolean") {
+    return sql.Bit;
+  }
+  if (type === "timestamp") {
+    return sql.DateTime2;
+  }
+  return sql.NVarChar(sql.MAX);
+}
+
+function convertMssqlParameterValue(type, value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (type === "timestamp") {
+    return new Date(value);
+  }
+  if (type === "date") {
+    return new Date(`${value}T00:00:00.000Z`);
+  }
+  return value;
 }
 
 function normalizeMssqlValidationError(err) {
