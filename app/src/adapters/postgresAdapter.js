@@ -1,5 +1,6 @@
 const { Pool } = require("pg");
 const { validateAstReadOnly } = require("../services/sqlAstValidator");
+const { replaceNamedPlaceholders } = require("../services/queryParameterParser");
 
 class PostgresAdapter {
   constructor(connectionString) {
@@ -147,6 +148,15 @@ class PostgresAdapter {
   }
 
   async executeReadOnly(sql, opts = {}) {
+    return this.executeWithReadOnlyTransaction(() => sql, opts);
+  }
+
+  async executeParameterizedReadOnly(sql, paramValues, opts = {}) {
+    const { text, values } = transformPostgresNamedParameters(sql, paramValues);
+    return this.executeWithReadOnlyTransaction(() => ({ text, values }), opts);
+  }
+
+  async executeWithReadOnlyTransaction(buildQuery, opts = {}) {
     const timeoutMs = Number(opts.timeoutMs || 20000);
     const maxRows = Number(opts.maxRows || 1000);
 
@@ -155,7 +165,7 @@ class PostgresAdapter {
     try {
       await client.query("BEGIN");
       await client.query(`SET LOCAL statement_timeout = ${Number.isFinite(timeoutMs) ? timeoutMs : 20000}`);
-      const result = await client.query(sql);
+      const result = await client.query(buildQuery());
       await client.query("COMMIT");
 
       const rows = Array.isArray(result.rows) ? result.rows : [];
@@ -194,6 +204,26 @@ class PostgresAdapter {
   quoteIdentifier(identifier) {
     return `"${String(identifier).replace(/"/g, "\"\"")}"`;
   }
+}
+
+function transformPostgresNamedParameters(sql, paramValues) {
+  const values = [];
+  const positions = new Map();
+
+  const text = replaceNamedPlaceholders(sql, (name, rawMatch) => {
+    if (!Object.prototype.hasOwnProperty.call(paramValues || {}, name)) {
+      throw new Error(`Missing parameter value for :${name}`);
+    }
+
+    if (!positions.has(name)) {
+      positions.set(name, values.length + 1);
+      values.push(paramValues[name]);
+    }
+
+    return `$${positions.get(name)}`;
+  });
+
+  return { text, values };
 }
 
 function formatPgObject(val) {
