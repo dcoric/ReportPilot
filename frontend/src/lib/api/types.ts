@@ -252,6 +252,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/saved-queries/{savedQueryId}/validate-params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate saved query parameters */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    savedQueryId: components["parameters"]["SavedQueryId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ValidateParamsRequest"];
+                };
+            };
+            responses: {
+                /** @description Parameter validation result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidateParamsResponse"];
+                    };
+                };
+                /** @description Saved query not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/saved-queries/{savedQueryId}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a saved query with parameters */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    savedQueryId: components["parameters"]["SavedQueryId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RunSavedQueryRequest"];
+                };
+            };
+            responses: {
+                /** @description Saved query result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunSavedQueryResponse"];
+                    };
+                };
+                /** @description Invalid saved query parameters or SQL */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            errors?: ({
+                                param?: string | null;
+                                message: string;
+                            } | string)[];
+                        };
+                    };
+                };
+                /** @description Saved query not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/query/sessions": {
         parameters: {
             query?: never;
@@ -1583,6 +1707,14 @@ export interface components {
         PromptHistoryResponse: {
             items: components["schemas"]["PromptHistoryItem"][];
         };
+        QueryParameter: {
+            name: string;
+            /** @enum {string} */
+            type: "text" | "integer" | "decimal" | "date" | "boolean" | "timestamp";
+            required: boolean;
+            default: unknown;
+            allowed_values: null | unknown[];
+        };
         SavedQuery: {
             id: string;
             owner_id: string;
@@ -1597,6 +1729,7 @@ export interface components {
                 timeout_ms?: number;
                 no_execute?: boolean;
             };
+            parameter_schema: components["schemas"]["QueryParameter"][];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -1621,6 +1754,7 @@ export interface components {
                 timeout_ms?: number;
                 no_execute?: boolean;
             };
+            parameter_schema?: components["schemas"]["QueryParameter"][];
         };
         UpdateSavedQueryRequest: {
             name: string;
@@ -1634,6 +1768,38 @@ export interface components {
                 timeout_ms?: number;
                 no_execute?: boolean;
             };
+            parameter_schema?: components["schemas"]["QueryParameter"][];
+        };
+        ValidateParamsRequest: {
+            params: {
+                [key: string]: unknown;
+            };
+        };
+        ValidateParamsResponse: {
+            ok: boolean;
+            resolved_values?: {
+                [key: string]: unknown;
+            };
+            errors?: {
+                param?: string | null;
+                message: string;
+            }[];
+        };
+        RunSavedQueryRequest: {
+            params?: {
+                [key: string]: unknown;
+            };
+            max_rows?: number;
+            timeout_ms?: number;
+        };
+        RunSavedQueryResponse: {
+            sql: string;
+            columns: string[];
+            rows: {
+                [key: string]: unknown;
+            }[];
+            row_count: number;
+            duration_ms: number;
         };
         CreateSessionRequest: {
             data_source_id: string;
